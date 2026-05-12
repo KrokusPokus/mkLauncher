@@ -1,5 +1,7 @@
-#include "settingsmanager.h"
+#include <QCoreApplication>
 #include <QFile>
+
+#include "settingsmanager.h"
 
 SettingsManager::SettingsManager() {
 	load(); // Lädt beim Erstellen automatisch
@@ -122,6 +124,8 @@ QStringList SettingsManager::importSearchFolders(const QString &input) {
         path = QDir::cleanPath(dir.absolutePath());
     }
 
+    searchFolders.removeDuplicates();
+
     return searchFolders;
 }
 
@@ -143,8 +147,8 @@ QString SettingsManager::exportSearchFolders(const QStringList &folders) {
 
 QString SettingsManager::getSettingsPath() {
     QString iniFilePath;
-	if (QFile::exists("settings.ini")) {
-        iniFilePath = "settings.ini";
+    if (QFile::exists(QCoreApplication::applicationDirPath() + "/settings.ini")) {
+        iniFilePath = QCoreApplication::applicationDirPath() + "/settings.ini";
 	} else {
         // Looks up the default folder path for config files (AppConfigLocation)
 		QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
@@ -159,8 +163,8 @@ QString SettingsManager::getSettingsPath() {
 
 QString SettingsManager::getHistoryPath() {
     QString iniFilePath;
-    if (QFile::exists("history.ini")) {
-        iniFilePath = "history.ini";
+    if (QFile::exists(QCoreApplication::applicationDirPath() + "/history.ini")) {
+        iniFilePath = QCoreApplication::applicationDirPath() + "/history.ini";
     } else {
         // Looks up the default folder path for config files (AppConfigLocation)
         QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);

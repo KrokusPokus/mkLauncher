@@ -6,7 +6,7 @@
 
 bool isTextFile(const QString &filePath);
 QString cleanFileName(const QString &fileName);
-QString formatAdaptiveSize(qint64 bytes);
+QString formatAdaptiveSize(quint64 bytes);
 quint32 calculateCRC32(const QString &filePath);
 
 bool atWordBoundary(const QString &fileName, const QString &word);

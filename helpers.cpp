@@ -40,7 +40,7 @@ QString cleanFileName(const QString &fileName) {
     return cleanedName;
 }
 
-QString formatAdaptiveSize(qint64 bytes) {
+QString formatAdaptiveSize(quint64 bytes) {
     static const QLocale locale = QLocale::system();
 
     if (bytes < 1024) {

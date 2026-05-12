@@ -14,9 +14,6 @@ void SearchWorker::process() {
 
     std::reverse(m_recentOpenList.begin(), m_recentOpenList.end());
 
-    uint iItemsFound = 0;
-    uint iNameMatched = 0;
-    uint iContentMatched = 0;
     int nameMatchQuality = -1;
     QStringList searchStringFilenameSplit = m_searchString.split(' ', Qt::SkipEmptyParts);
     QList<SearchResult> resultsBatch;
@@ -32,12 +29,17 @@ void SearchWorker::process() {
         while (iter.hasNext()) {
             iter.next();
 
+            if (m_abort.load()) {
+                qDebug() << "SearchWorker::process() aborted at" << BenchmarkTimer.elapsed() << "ms";
+                emit searchStats(true);
+                emit finished();
+                return;
+            }
+
             QString fileName = iter.fileName(); // Die ID (z.B. "firefox.desktop")
 
             if (!seenIds.contains(fileName)) {
                 seenIds.insert(fileName);
-
-                iItemsFound++;
 
                 QFile file(iter.filePath());
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -71,8 +73,6 @@ void SearchWorker::process() {
                             continue;
                         }
 
-                        iNameMatched++;
-
                         SearchResult res;
                         res.fileInfo = iter.fileInfo();
                         res.nameMatchQuality = nameMatchQuality;
@@ -84,13 +84,6 @@ void SearchWorker::process() {
                             emit filesFoundBatch(resultsBatch);
                             resultsBatch.clear();
                         }
-
-                        if (m_abort.load()) {
-                            qDebug() << "SearchWorker::process() aborted at" << BenchmarkTimer.elapsed() << "ms";
-                            emit searchStats(true);
-                            emit finished();
-                            return;
-                        }
                     }
                 }
             }
@@ -99,18 +92,22 @@ void SearchWorker::process() {
 #endif
 
     // Search through list of user-defined folders
-    for (QString &searchDir : m_searchFolders) {
+    for (const QString &searchDir : std::as_const(m_searchFolders)) {
         QDirIterator iter(searchDir, QDir::NoDotAndDotDot | QDir::System | QDir::Files, QDirIterator::Subdirectories);
         while (iter.hasNext()) {
             iter.next();
-            iItemsFound++;
+
+            if (m_abort.load()) {
+                qDebug() << "SearchWorker::process() aborted at" << BenchmarkTimer.elapsed() << "ms";
+                emit searchStats(true);
+                emit finished();
+                return;
+            }
 
             nameMatchQuality = getNameMatchQuality(iter.fileInfo(), m_searchString, searchStringFilenameSplit, m_recentOpenList);
             if (nameMatchQuality == 0) {
                 continue;
             }
-
-            iNameMatched++;
 
             SearchResult res;
             res.fileInfo = iter.fileInfo();
@@ -121,13 +118,6 @@ void SearchWorker::process() {
             if (resultsBatch.size() >= 1000) {
                 emit filesFoundBatch(resultsBatch);
                 resultsBatch.clear();
-            }
-
-            if (m_abort.load()) {
-                qDebug() << "SearchWorker::process() aborted at" << BenchmarkTimer.elapsed() << "ms";
-                emit searchStats(true);
-                emit finished();
-                return;
             }
         }
     }
@@ -142,5 +132,5 @@ void SearchWorker::process() {
 }
 
 void SearchWorker::abort() {
-    m_abort = true;
+    m_abort.store(true);
 }
