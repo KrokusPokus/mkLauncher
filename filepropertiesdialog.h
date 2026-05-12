@@ -1,16 +1,16 @@
 #ifndef FILEPROPERTIESDIALOG_H
 #define FILEPROPERTIESDIALOG_H
 
+#include <QCheckBox>
 #include <QDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QLabel>
 #include <QLineEdit>
-#include <QCheckBox>
-#include <QVBoxLayout>
 #include <QFormLayout>
 #include <QPushButton>
 #include <QtConcurrent>
-#include <QFutureWatcher>
+#include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -38,6 +38,7 @@ private:
 
     QStringList m_filePaths;
     bool m_isMultiMode;
+    QLocale m_locale;
 
     QLabel *m_iconLabel = nullptr;
     QLineEdit *m_nameEdit = nullptr;
@@ -62,6 +63,8 @@ private:
     QLabel *m_permLabel = nullptr;
     QCheckBox *m_permCBs[3][3]{};   // The '{}' initializes all 9 pointers to nullptr
 #endif
+
+    std::atomic<bool> m_abort{false};
 
     // For calculating size concurrently
     struct ProgressResult {

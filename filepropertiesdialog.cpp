@@ -1,15 +1,9 @@
 #include <QFileIconProvider>
 #include <QDateTime>
 #include <QDirIterator>
-#include <QLocale>
 #include <QHBoxLayout>
 #include <QMimeDatabase>
 #include <QMimeType>
-
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
-#include <pwd.h>
-#include <grp.h>
-#endif
 
 #include "filepropertiesdialog.h"
 #include "helpers.h"
@@ -39,7 +33,7 @@ FilePropertiesDialog::FilePropertiesDialog(const QStringList &filePaths, QWidget
 
 FilePropertiesDialog::~FilePropertiesDialog() {
     if (m_watcher) {
-        m_watcher->disconnect(); // Keine Signale mehr an ein sterbendes Objekt
+        m_abort.store(true);
         m_watcher->waitForFinished(); // Warten, bis der Thread sicher beendet ist
     }
 }
@@ -267,17 +261,16 @@ void FilePropertiesDialog::loadFileInfo() {
     m_pathEdit->setText(QDir::toNativeSeparators(fileInfo.absolutePath()));
     m_typeLabel->setText(getFileType(fileInfo));
 
-    QLocale locale;
     if (fileInfo.isDir()) {
         int fileCount = 0;
         quint64 totalSize = calculateFolderSize(fileInfo.absoluteFilePath(), fileCount);
         m_sizeLabel->setText(formatAdaptiveSize(totalSize));
         m_containsLabel->setText(tr("%1 Files")
-                                     .arg(locale.toString(fileCount)));
+                                     .arg(m_locale.toString(fileCount)));
     } else {
         m_sizeLabel->setText(tr("%1 (%2 Bytes)")
                                  .arg(formatAdaptiveSize(fileInfo.size()))
-                                 .arg(locale.toString(fileInfo.size())));
+                                 .arg(m_locale.toString(fileInfo.size())));
     }
 
     m_createdLabel->setText(fileInfo.birthTime().toString("yyyy-MM-dd  HH:mm:ss"));
@@ -292,25 +285,18 @@ void FilePropertiesDialog::loadFileInfo() {
 #endif
 
 #if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
-    m_ownerLabel->setText(fileInfo.owner());
-    m_groupLabel->setText(fileInfo.group());
-
-    struct passwd *pw = getpwuid(fileInfo.ownerId());
-    if (pw) {
-        m_ownerLabel->setText(QString("%1 (%2)")
-                                  .arg(pw->pw_name)
-                                  .arg(fileInfo.ownerId()));
-    } else {
+    QString ownerName = fileInfo.owner();
+    if (ownerName.isEmpty()) {
         m_ownerLabel->setText(QString::number(fileInfo.ownerId()));
+    } else {
+        m_ownerLabel->setText(tr("%1 (%2)").arg(ownerName).arg(fileInfo.ownerId()));
     }
 
-    struct group *gr = getgrgid(fileInfo.groupId());
-    if (gr) {
-        m_groupLabel->setText(QString("%1 (%2)")
-                                  .arg(gr->gr_name)
-                                  .arg(fileInfo.groupId()));
-    } else {
+    QString groupName = fileInfo.group();
+    if (groupName.isEmpty()) {
         m_groupLabel->setText(QString::number(fileInfo.groupId()));
+    } else {
+        m_groupLabel->setText(tr("%1 (%2)").arg(groupName).arg(fileInfo.groupId()));
     }
 
     QFile::Permissions p = fileInfo.permissions();
@@ -346,6 +332,8 @@ void FilePropertiesDialog::loadFileInfoMultiMode() {
         ProgressResult res;
 
         for (const QString &path : std::as_const(m_filePaths)) {
+            if (m_abort.load())
+                return {};
             QFileInfo info(path);
             if (info.isDir()) {
                 res.folders++;
@@ -367,11 +355,11 @@ void FilePropertiesDialog::updateMultiUi(ProgressResult result) {
 
     m_sizeLabel->setText(tr("%1 (%2 Bytes)")
                              .arg(formatAdaptiveSize(result.size))
-                             .arg(locale().toString(result.size)));
+                             .arg(m_locale.toString(result.size)));
 
     m_containsLabel->setText(tr("%1 Files, %2 Folders")
-                                 .arg(locale().toString(result.files))
-                                 .arg(locale().toString(result.folders)));
+                                 .arg(m_locale.toString(result.files))
+                                 .arg(m_locale.toString(result.folders)));
 
     m_watcher->deleteLater();
     m_watcher = nullptr;
