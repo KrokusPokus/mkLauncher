@@ -45,8 +45,8 @@ void FilePropertiesDialog::setupUiMultiMode() {
 
     // --- Header ---
     auto *headerLayout = new QHBoxLayout();
-    headerLayout->setContentsMargins(30, 10, 30, 10);
-    headerLayout->setSpacing(20);
+    headerLayout->setContentsMargins(30, 25, 30, 25);
+    headerLayout->setSpacing(25);
     m_iconLabel = new QLabel();
 
     m_iconLabel->setPixmap(QIcon(":/icons/res/multi.ico").pixmap(48, 48));
@@ -69,6 +69,7 @@ void FilePropertiesDialog::setupUiMultiMode() {
     auto *formLayout = new QFormLayout();
     formLayout->setContentsMargins(30, 10, 30, 30);
     formLayout->setSpacing(10);
+    formLayout->setHorizontalSpacing(20);
     formLayout->setLabelAlignment(Qt::AlignLeft);
 
     m_containsLabel = new QLabel(tr("Calculating content..."));
@@ -112,8 +113,8 @@ void FilePropertiesDialog::setupUi() {
     mainLayout->setSpacing(0);
 
     auto *headerLayout = new QHBoxLayout();
-    headerLayout->setContentsMargins(30, 10, 30, 10);
-    headerLayout->setSpacing(20);
+    headerLayout->setContentsMargins(30, 25, 30, 25);
+    headerLayout->setSpacing(25);
     m_iconLabel = new QLabel();
     m_nameEdit = new QLineEdit();
     headerLayout->addWidget(m_iconLabel);
@@ -145,6 +146,7 @@ void FilePropertiesDialog::setupUi() {
     auto *fileinfoLayout = new QFormLayout();
     fileinfoLayout->setContentsMargins(30, 10, 30, 10);
     fileinfoLayout->setSpacing(10);
+    fileinfoLayout->setHorizontalSpacing(20);
     fileinfoLayout->addRow(tr("Type:"), m_typeLabel);
     fileinfoLayout->addRow(tr("MimeType:"), m_mimeLabel);
     fileinfoLayout->addRow(tr("Path:"), m_pathEdit);
@@ -181,12 +183,11 @@ void FilePropertiesDialog::setupUi() {
     attrLayout->addWidget(m_hiddenCB);
     attrLayout->addWidget(m_systemCB);
     mainLayout->addLayout(attrLayout);
-#endif
-
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     auto *securityLayout = new QFormLayout();
     securityLayout->setContentsMargins(30, 10, 30, 10);
     securityLayout->setSpacing(10);
+    securityLayout->setHorizontalSpacing(20);
 
     m_ownerLabel = new QLabel();
     m_ownerLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -207,6 +208,7 @@ void FilePropertiesDialog::setupUi() {
     auto *permGrid = new QGridLayout();
     permGrid->setContentsMargins(60, 10, 30, 10);
     permGrid->setSpacing(5);
+    permGrid->setAlignment(Qt::AlignLeft);
 
     // Header
     permGrid->addWidget(new QLabel(tr("Read")), 0, 1);
@@ -256,7 +258,7 @@ void FilePropertiesDialog::loadFileInfo() {
     m_mimeLabel->setText(mime.name());
 
     QFileIconProvider provider;
-    m_iconLabel->setPixmap(QIcon::fromTheme(mime.iconName(), provider.icon(fileInfo)).pixmap(32, 32));
+    m_iconLabel->setPixmap(QIcon::fromTheme(mime.iconName(), provider.icon(fileInfo)).pixmap(48, 48));
     m_nameEdit->setText(fileInfo.completeBaseName());
     m_pathEdit->setText(QDir::toNativeSeparators(fileInfo.absolutePath()));
     m_typeLabel->setText(getFileType(fileInfo));

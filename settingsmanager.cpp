@@ -39,10 +39,10 @@ void SettingsManager::load() {
     recentInputList = h.value("History/InputList").toStringList();
     recentOpenList = h.value("History/OpenList").toStringList();
 
-    save();
+    saveSettings();
 }
 
-void SettingsManager::save() {
+void SettingsManager::saveSettings() {
     QSettings s(getSettingsPath(), QSettings::IniFormat);
 
     // Core
@@ -73,7 +73,9 @@ void SettingsManager::save() {
 
     // Because we used safeSetValue(), the file will only get written if there were changes in values.
 	s.sync();
+}
 
+void SettingsManager::saveHistory() {
     QSettings h(getHistoryPath(), QSettings::IniFormat);
     safeSetValue(h, "History/InputList", recentInputList);
     safeSetValue(h, "History/OpenList", recentOpenList);

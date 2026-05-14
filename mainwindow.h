@@ -116,32 +116,9 @@ private:
         eColQuality = 5,
     };
 
-    QWidget *centralWidget;
-    QVBoxLayout *mainLayout;
-    QWidget *topControlsContainerWidget;
-    QHBoxLayout *topControlsHBoxLayout;
-    QLineEdit *InputBox1;
-    QLineEdit *InputBox2;
-    QWidget *bottomControlsContainerWidget;
-    QVBoxLayout *bottomControlsVBoxLayout;
-    QTableWidget *tableWidget;
-
-    QElapsedTimer m_BenchmarkTimer;
-    QFileIconProvider m_iconProvider;
-    QString currentDirectory;
-    QTimer *m_timerUpdateIcons;
-
-    QAction *m_actionListViewOpenFiles;
-    QAction *m_actionListViewEditFiles;
-    QAction *m_actionListViewBrowseToFile;
-    QAction *m_actionListViewCopyPaths;
-    QAction *m_actionListViewCutFiles;
-    QAction *m_actionListViewCopyFiles;
-    QAction *m_actionListViewDeleteFiles;
-    QAction *m_actionListViewRenameFiles;
-    QAction *m_actionListViewFileProperties;
-
     QStringList getTablePathList();
+    QString RecentInputList_GetPrevious(const QString &currentText);
+    QString RecentInputList_GetNext(const QString &currentText);
     void action_EditSettingsFile();
     void action_ListViewBrowseToFile();
     void action_ListViewCopyFiles();
@@ -152,50 +129,68 @@ private:
     void action_ListViewFileProperties();
     void action_ListViewOpenFiles();
     void action_ListViewRenameFiles();
-    void addFileToTable(const QFileInfo fileInfo, int iRow, int nameMatchQuality, QString iniName);
+    void addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &iniName);
     void finalizeUI();
     void guiHideConditional();
     void launchAction();
+    void loadMimeCache();
     void onWorkerFinished(bool bSearchInterrupted);
     void onWorkerSentBatch(const QList<SearchResult> &results);
-    void openFileListWithHandler(const QString &handler, const QStringList &fileList);
-    void positionWindow();
+    void parseMimeInfoCache(const QString &path);
+    void parseMimeAppsList(const QString &path);
     void processNextBatch();
+    void RecentInputList_Add(QString searchTerm);
+    void RecentOpenList_Add(const QString &filePath);
     void removeCutMarkers();
-    void setupClipboardForCut(QSet<int> rowSet);
+    void setupClipboardForCut(const QSet<int> &rowSet);
     void startSearch();
     void updateColumns();
     void validateInputBoxRegex();
 
-    uint m_SearchStats_iItemsFound;
-    uint m_SearchStats_iNameMatched;
-    uint m_SearchStats_iContentMatched;
-    bool m_SearchStats_bSearchInterrupted;
+    QWidget *m_centralWidget = nullptr;
+    QVBoxLayout *m_mainLayout = nullptr;
+    QWidget *m_topControlsContainerWidget = nullptr;
+    QHBoxLayout *m_topControlsHBoxLayout = nullptr;
+    QLineEdit *m_LineEdit1 = nullptr;
+    QLineEdit *m_LineEdit2 = nullptr;
+    QTableWidget *m_tableWidget = nullptr;
+    QAction *m_actionListViewOpenFiles = nullptr;
+    QAction *m_actionListViewEditFiles = nullptr;
+    QAction *m_actionListViewBrowseToFile = nullptr;
+    QAction *m_actionListViewCopyPaths = nullptr;
+    QAction *m_actionListViewCutFiles = nullptr;
+    QAction *m_actionListViewCopyFiles = nullptr;
+    QAction *m_actionListViewDeleteFiles = nullptr;
+    QAction *m_actionListViewRenameFiles = nullptr;
+    QAction *m_actionListViewFileProperties = nullptr;
+    QThread *m_workerThread = nullptr;
+    QTimer *m_timerUpdateIcons = nullptr;
+
+    QElapsedTimer m_BenchmarkTimer;
+    QFileIconProvider m_iconProvider;
+    bool m_WorkerSearchInterrupted;
     bool m_bHeaderVisible;
-    bool m_uiFinalizing = false;
+    bool m_isProcessingPending = false;
+    int m_tableLineHeight;
     std::atomic<bool> m_bSearchActive{false};
     std::atomic<bool> m_bAbortRequested{false};
     std::atomic<bool> m_bRestartPendingSearch{false};
-    std::atomic<bool> m_workerHasFinished{false};
+    std::atomic<bool> m_bWorkerFinished{false};
     QHash<QString, QIcon> m_iconCache;
     QHash<QString, QIcon> m_pathIconCache;
+    QHash<QString, QStringList> m_mimeCache;
     QQueue<QList<SearchResult>> m_pendingBatches;
-    bool m_isProcessingPending = false;
     QByteArray m_currentClipboardToken;
     QSet<int> m_rowsWithCutMarkers;
     SettingsManager m_settings;
 
-    void RecentOpenList_Add(QString filePath);
-
-    QStringList m_recentInputList;
-    void RecentInputList_Add(QString searchTerm);
-    QString RecentInputList_GetPrevious(const QString &currentText);
-    QString RecentInputList_GetNext(const QString &currentText);
-
+#ifdef Q_OS_WIN
+    QString getSendToPath();
+#endif
 
 protected:
     void closeEvent(QCloseEvent *event) override;
-    bool event(QEvent *event) override;
+    //bool event(QEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;

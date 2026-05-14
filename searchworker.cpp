@@ -15,7 +15,7 @@ void SearchWorker::process() {
     std::reverse(m_recentOpenList.begin(), m_recentOpenList.end());
 
     int nameMatchQuality = -1;
-    QStringList searchStringFilenameSplit = m_searchString.split(' ', Qt::SkipEmptyParts);
+    QStringList searchStringSplit = m_searchString.split(' ', Qt::SkipEmptyParts);
     QList<SearchResult> resultsBatch;
     resultsBatch.reserve(1000); // small optimization. no measurable gains though.
 
@@ -41,34 +41,41 @@ void SearchWorker::process() {
             if (!seenIds.contains(fileName)) {
                 seenIds.insert(fileName);
 
-                QFile file(iter.filePath());
+                QString filePath = iter.filePath();
+                QFile file(filePath);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                     QTextStream in(&file);
-                    QString iniName, iniGenericName, iniKeywords;
-                    bool iniNoDisplay = false;
-                    bool inMainSection = false;
+                    in.setEncoding(QStringConverter::Utf8);
+
+                    QString iniName, iniNameLocalised, iniGenericName, iniKeywords;
+                    bool bVisible = true;
+                    bool bSystemSettings = false;
+                    bool bInMainSection = false;
 
                     while (!in.atEnd()) {
                         QString line = in.readLine().trimmed();
 
-                        // Sektions-Wechsel erkennen
                         if (line.startsWith('[') && line.endsWith(']')) {
-                            // Wir sind nur an der Sektion [Desktop Entry] interessiert
-                            inMainSection = (line == "[Desktop Entry]");
+                            if (bInMainSection) break; // we were already inside the main "[Desktop Entry]" and hit another section, so break
+
+                            bInMainSection = (line == "[Desktop Entry]");
                             continue;
                         }
 
-                        // Nur verarbeiten, wenn wir in der richtigen Sektion sind
-                        if (!inMainSection) continue;
+                        if (!bInMainSection) continue;
 
                         if (line.startsWith("Name=")) iniName = line.mid(5);
-                        else if (line.startsWith("GenericName=")) iniGenericName = line.mid(12);
-                        else if (line.startsWith("Keywords=")) iniKeywords = line.mid(9);
-                        else if (line.startsWith("NoDisplay=true")) iniNoDisplay = true;
+                        else if (line.startsWith("Name[de]=")) iniNameLocalised = line.mid(9);
+                        //else if (line.startsWith("GenericName=")) iniGenericName = line.mid(12);
+                        //else if (line.startsWith("Keywords=")) iniKeywords = line.mid(9);
+                        else if (line.startsWith("NoDisplay=true")) bVisible = false;
+                        else if (line.startsWith("Exec=systemsettings")) bSystemSettings = true;
                     }
 
-                    if (!iniNoDisplay) {
-                        nameMatchQuality = getDesktopNameMatchQuality(iter.fileInfo(), m_searchString, searchStringFilenameSplit, m_recentOpenList, iniName);
+                    if (bVisible || bSystemSettings) {
+                        QString alternativeName = (iniNameLocalised + " " + iniName);
+
+                        nameMatchQuality = getDesktopNameMatchQuality(filePath, m_searchString, searchStringSplit, m_recentOpenList, alternativeName.trimmed());
                         if (nameMatchQuality == 0) {
                             continue;
                         }
@@ -76,7 +83,7 @@ void SearchWorker::process() {
                         SearchResult res;
                         res.fileInfo = iter.fileInfo();
                         res.nameMatchQuality = nameMatchQuality;
-                        res.iniName = iniName;
+                        res.iniName = iniNameLocalised.isEmpty() ? iniName : iniNameLocalised;
 
                         resultsBatch.append(res);
 
@@ -104,7 +111,7 @@ void SearchWorker::process() {
                 return;
             }
 
-            nameMatchQuality = getNameMatchQuality(iter.fileInfo(), m_searchString, searchStringFilenameSplit, m_recentOpenList);
+            nameMatchQuality = getNameMatchQuality(iter.fileInfo(), m_searchString, searchStringSplit, m_recentOpenList);
             if (nameMatchQuality == 0) {
                 continue;
             }

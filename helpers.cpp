@@ -1,3 +1,5 @@
+#include "helpers.h"
+
 #include <QDir>
 #include <QMimeType>
 #include <QMimeDatabase>
@@ -5,7 +7,6 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 #include <zlib.h>
-#include "helpers.h"
 
 bool isTextFile(const QString &filePath) {
     QMimeDatabase db;
@@ -165,15 +166,14 @@ uint getNameMatchQuality(const QFileInfo &fileInfo, const QString &searchString,
 }
 
 // Simplified version for name of app given in *.desktop files
-uint getDesktopNameMatchQuality(const QFileInfo &fileInfo, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList, const QString &desktopName) {
-//qDebug() << "searchstring =" << searchString << "vs desktopName=" << desktopName;
-    QString sFilePath = fileInfo.filePath();
+uint getDesktopNameMatchQuality(const QString &sFilePath, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList, const QString &alternativeNames) {
+//qDebug() << "searchstring =" << searchString << "vs alternativeName=" << alternativeName;
 
-    if (QString::compare(desktopName, searchString, Qt::CaseInsensitive) == 0) {
+    if (QString::compare(alternativeNames, searchString, Qt::CaseInsensitive) == 0) {
         return 99 - recentOpenList.indexOf(sFilePath);
     }
 
-    if (desktopName.startsWith(searchString, Qt::CaseInsensitive)) {
+    if (alternativeNames.startsWith(searchString, Qt::CaseInsensitive)) {
         return 199 - recentOpenList.indexOf(sFilePath);
     }
 
@@ -185,7 +185,7 @@ uint getDesktopNameMatchQuality(const QFileInfo &fileInfo, const QString &search
     int iFoundPos = 0;
 
     for (const QString &word : std::as_const(searchStringSplit)) {
-        iFoundPos = desktopName.indexOf(word, 0, Qt::CaseInsensitive);
+        iFoundPos = alternativeNames.indexOf(word, 0, Qt::CaseInsensitive);
 
         if (iFoundPos == -1) { // not found
             bMatchType1 = false;
@@ -197,7 +197,7 @@ uint getDesktopNameMatchQuality(const QFileInfo &fileInfo, const QString &search
             if (iIndex == 0) {  // Further improved match, since *first* searchterm found at very beginning of filename
                 bMatchType3 = true;
             }
-        } else if (atWordBoundary(desktopName, word)) {
+        } else if (atWordBoundary(alternativeNames, word)) {
             // Improved match: one searchterm found at a word boundary in filename
             bMatchType2 = true;
         }
@@ -218,67 +218,137 @@ uint getDesktopNameMatchQuality(const QFileInfo &fileInfo, const QString &search
     }
 }
 
-void launchDesktopFile(const QFileInfo &fileInfo) {
+DesktopEntry getDesktopEntryById(const QString &id) {
+    static const QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
+    for (const QString &dirPath : appDirs) {
+        QFileInfo fileInfo(QDir(dirPath).filePath(id));
+        DesktopEntry entry = getDesktopEntry(fileInfo);
+        if (entry.isValid) {
+            return entry;
+        }
+    }
+    return DesktopEntry();
+}
+
+DesktopEntry getDesktopEntry(const QFileInfo &fileInfo) {
+
+    static const QString localeName = QLocale::system().name().left(2); // "de", "fr", ...
+    static const QString localKey = QString("Name[%1]=").arg(localeName);
+
+    DesktopEntry currentEntry;
+
     QFile file(fileInfo.filePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&file);
+        in.setEncoding(QStringConverter::Utf8);
 
-    QTextStream in(&file);
-    QString execCommand, execPath;
-    bool inMainSection = false;
+        QString iniName, iniNameLocalised;
+        bool bInMainSection = false;
 
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
 
-        if (line.startsWith('[') && line.endsWith(']')) {
-            if (inMainSection && !execCommand.isEmpty()) break; // if this is a new section but we already got execCommand, break
-            inMainSection = (line == "[Desktop Entry]");
-            continue;
-        }
-
-        if (!inMainSection) continue;
-        if (line.startsWith("Exec=")) execCommand = line.mid(5);
-        else if (line.startsWith("Path=")) execPath = line.mid(5);
-    }
-
-    if (!execCommand.isEmpty()) {
-        execCommand.remove(QRegularExpression("%[uUfFiIcK]"));
-        QString program = execCommand.trimmed();
-        QStringList arguments;
-
-        QStringList tokens = QProcess::splitCommand(program);
-        if (!tokens.isEmpty()) {
-            program = tokens.takeFirst();
-            arguments = tokens;
-        }
-
-        if (program.startsWith("$HOME")) {
-            QString home = qgetenv("HOME"); // Holt /home/benutzer
-            program.replace("$HOME", home);
-        } else if (program.startsWith("~")) {
-            program.replace(0, 1, QDir::homePath());
-        }
-
-        if (!QFileInfo(program).isAbsolute()) {
-            QString absoluteProgram = QStandardPaths::findExecutable(program);
-            if (absoluteProgram.isEmpty()) {
-                qWarning() << "Couldn't find path for binary:" << program;
-                return;
-            }
-            program = absoluteProgram;
-        }
-
-        QString workingDir = execPath.trimmed();
-        if (workingDir.isEmpty()) {
-            if (workingDir.startsWith("$HOME")) {
-                QString home = qgetenv("HOME"); // Holt /home/benutzer
-                workingDir.replace("$HOME", home);
-            } else if (workingDir.startsWith("~")) {
-                workingDir.replace(0, 1, QDir::homePath());
+            if (line.startsWith('[') && line.endsWith(']')) {
+                if (bInMainSection) break;
+                bInMainSection = (line == "[Desktop Entry]");
+                continue;
             }
 
-            workingDir = QFileInfo(program).absolutePath();
+            if (!bInMainSection || line.startsWith('#')) continue;
+
+            if (line.startsWith("Name=")) iniName = line.mid(5);
+            else if (line.startsWith(localKey)) iniNameLocalised = line.mid(localKey.size());
+            else if (line.startsWith("Icon=")) currentEntry.icon = line.mid(5);
+            else if (line.startsWith("Exec=")) currentEntry.exec = line.mid(5);
+            else if (line.startsWith("Path=")) currentEntry.workDir = line.mid(5);
+            else if (line.startsWith("Hidden=true")) {
+                return DesktopEntry();
+            }
         }
 
-        QProcess::startDetached(program, arguments, workingDir);
+        currentEntry.name = iniNameLocalised.isEmpty() ? iniName : iniNameLocalised;
+        currentEntry.isValid = !currentEntry.name.isEmpty();
+        currentEntry.id = fileInfo.fileName();
+        currentEntry.path = fileInfo.filePath();
+
+        if (currentEntry.isValid) {
+            return currentEntry;
+        }
     }
+
+    return DesktopEntry();
+}
+
+void openFileListWithHandler(const QString &handlerApp, const QStringList &fileList) {
+    if (handlerApp.endsWith(".desktop", Qt::CaseInsensitive)) {
+        launchDesktopFile(getDesktopEntryById(handlerApp), fileList);
+        return;
+    }
+
+    if (QFile::exists(handlerApp)) {
+        QProcess::startDetached(QDir::toNativeSeparators(handlerApp), fileList);
+        return;
+    }
+
+    QString absolutePath = QStandardPaths::findExecutable(handlerApp);
+    if (!absolutePath.isEmpty()) {
+        // bool QProcess::startDetached(const QString &program, const QStringList &arguments = {}, const QString &workingDirectory = QString(), qint64 *pid = nullptr)
+        QProcess::startDetached(QDir::toNativeSeparators(absolutePath), fileList);
+        return;
+    }
+
+    qDebug() << "openFileListWithHandler() No absolute path found for:" << handlerApp;
+}
+
+void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList) {
+    if (info.exec.isEmpty()) return;
+
+    QStringList args = QProcess::splitCommand(info.exec);
+    if (args.isEmpty()) return;
+    QString program = args.takeFirst();
+
+    if (!fileList.isEmpty()) {
+        for (int i = 0; i < args.size(); ++i) {
+            if (args[i] == "%f" || args[i] == "%u") {
+                args[i] = fileList.first();
+            } else if (args[i] == "%F" || args[i] == "%U") {
+                args.removeAt(i);
+                for (int j = 0; j < fileList.size(); ++j)
+                    args.insert(i + j, fileList.at(j));
+                break;
+            }
+        }
+        if (!info.exec.contains('%'))
+            args.append(fileList);
+    } else {
+        static const QRegularExpression placeholders("%[uUfFiIcK]");
+        args.removeIf([&](const QString &a) { return a.contains(placeholders); });
+    }
+
+    auto expandHome = [](QString path) -> QString {
+        if (path.startsWith("$HOME") || path.startsWith('~')) {
+            const QString home = QDir::homePath();
+            if (path.startsWith("$HOME"))
+                return path.replace("$HOME", home);
+            if (path.startsWith('~'))
+                return path.replace(0, 1, home);
+        }
+        return path;
+    };
+
+    program = expandHome(program);
+    if (!QFileInfo(program).isAbsolute()) {
+        program = QStandardPaths::findExecutable(program);
+        if (program.isEmpty()) {
+            return;
+        }
+    }
+
+    QString workDir = expandHome(info.workDir.trimmed());
+    if (workDir.startsWith('"') && workDir.endsWith('"'))
+        workDir = workDir.mid(1, workDir.length() - 2);
+    if (workDir.isEmpty() || !QDir(workDir).exists())
+        workDir = QFileInfo(program).absolutePath();
+
+    QProcess::startDetached(program, args, workDir);
 }

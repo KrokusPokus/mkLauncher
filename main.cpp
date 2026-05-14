@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationVersion("0.1");
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Qt6 based apps and files launcher tool");
+    parser.setApplicationDescription("Qt6 based apps and file launcher tool");
     auto helpOption = parser.addHelpOption();
     auto versionOption = parser.addVersionOption();
 
