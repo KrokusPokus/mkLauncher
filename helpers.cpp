@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QRegularExpression>
+#include <QUrl>
 #include <zlib.h>
 
 bool isTextFile(const QString &filePath) {
@@ -90,132 +91,6 @@ quint32 calculateCRC32(const QString &filePath) {
 
     file.close();
     return static_cast<quint32>(crc);
-}
-
-bool atWordBoundary(const QString &fileName, const QString &word) {
-    static const QString separators = " .(-_[";
-    int pos = 0;
-    while ((pos = fileName.indexOf(word, pos, Qt::CaseInsensitive)) != -1) {
-        if (pos > 0 && separators.contains(fileName[pos - 1])) {
-            return true;
-        }
-        pos += word.length();
-    }
-    return false;
-};
-
-uint getNameMatchQuality(const QFileInfo &fileInfo, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList) {
-    QString sFilePath = fileInfo.filePath();
-    QString sFileName = fileInfo.fileName();
-    QString sBaseNameComplete = fileInfo.completeBaseName();    // for "/home/user/archive.tar.gz" this would return "archive.tar"
-    QString sBaseName =  fileInfo.baseName();                   // for "/home/user/archive.tar.gz" this would return "archive"
-
-    if ((QString::compare(sFileName, searchString, Qt::CaseInsensitive) == 0) || (QString::compare(sBaseNameComplete, searchString, Qt::CaseInsensitive) == 0) || (QString::compare(sBaseName, searchString, Qt::CaseInsensitive) == 0)) {
-        return 99 - recentOpenList.indexOf(sFilePath);
-    }
-
-    if (sFileName.startsWith(searchString, Qt::CaseInsensitive)) {
-        return 199 - recentOpenList.indexOf(sFilePath);
-    }
-
-    if (searchString.contains("/", Qt::CaseSensitive) || searchString.contains("\\", Qt::CaseSensitive)) {
-        if (sFilePath.contains(searchString, Qt::CaseInsensitive)) {
-            return 299 - recentOpenList.indexOf(sFilePath);
-        }
-    }
-
-    // Match search terms separatately
-    bool bMatchType1 = true;
-    bool bMatchType2 = false;
-    bool bMatchType3 = false;
-    int iIndex = 0;
-    int iFoundPos = 0;
-
-    for (const QString &word : std::as_const(searchStringSplit)) {
-        iFoundPos = sFileName.indexOf(word, 0, Qt::CaseInsensitive);
-
-        if (iFoundPos == -1) { // not found
-            bMatchType1 = false;
-            break;
-        }
-
-        if (iFoundPos == 0) {   // Improved match, since one searchterm found at very beginning of filename
-            bMatchType2 = true;
-            if (iIndex == 0) {  // Further improved match, since *first* searchterm found at very beginning of filename
-                bMatchType3 = true;
-            }
-        } else if (atWordBoundary(sFileName, word)) {
-            // Improved match: one searchterm found at a word boundary in filename
-            bMatchType2 = true;
-        }
-
-        iIndex++;
-    }
-
-    if (bMatchType1 == false) {
-        return 0;
-    }
-
-    if (bMatchType3 == true) {
-        return 399 - recentOpenList.indexOf(sFilePath);
-    } else if (bMatchType2 == true) {
-        return 499 - recentOpenList.indexOf(sFilePath);
-    } else {
-        return 599 - recentOpenList.indexOf(sFilePath);
-    }
-}
-
-// Simplified version for name of app given in *.desktop files
-uint getDesktopNameMatchQuality(const QString &sFilePath, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList, const QString &alternativeNames) {
-//qDebug() << "searchstring =" << searchString << "vs alternativeName=" << alternativeName;
-
-    if (QString::compare(alternativeNames, searchString, Qt::CaseInsensitive) == 0) {
-        return 99 - recentOpenList.indexOf(sFilePath);
-    }
-
-    if (alternativeNames.startsWith(searchString, Qt::CaseInsensitive)) {
-        return 199 - recentOpenList.indexOf(sFilePath);
-    }
-
-    // Match search terms separatately
-    bool bMatchType1 = true;
-    bool bMatchType2 = false;
-    bool bMatchType3 = false;
-    int iIndex = 0;
-    int iFoundPos = 0;
-
-    for (const QString &word : std::as_const(searchStringSplit)) {
-        iFoundPos = alternativeNames.indexOf(word, 0, Qt::CaseInsensitive);
-
-        if (iFoundPos == -1) { // not found
-            bMatchType1 = false;
-            break;
-        }
-
-        if (iFoundPos == 0) {   // Improved match, since one searchterm found at very beginning of filename
-            bMatchType2 = true;
-            if (iIndex == 0) {  // Further improved match, since *first* searchterm found at very beginning of filename
-                bMatchType3 = true;
-            }
-        } else if (atWordBoundary(alternativeNames, word)) {
-            // Improved match: one searchterm found at a word boundary in filename
-            bMatchType2 = true;
-        }
-
-        iIndex++;
-    }
-
-    if (bMatchType1 == false) {
-        return 0;
-    }
-
-    if (bMatchType3 == true) {
-        return 399 - recentOpenList.indexOf(sFilePath);
-    } else if (bMatchType2 == true) {
-        return 499 - recentOpenList.indexOf(sFilePath);
-    } else {
-        return 599 - recentOpenList.indexOf(sFilePath);
-    }
 }
 
 DesktopEntry getDesktopEntryById(const QString &id) {
@@ -351,4 +226,33 @@ void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList) {
         workDir = QFileInfo(program).absolutePath();
 
     QProcess::startDetached(program, args, workDir);
+}
+
+void browseToFile(const QString &path) {
+#ifdef Q_OS_WIN
+    QStringList args;
+    if (!m_settings.fileManager.isEmpty()) {
+        QFileInfo fileInfo(path);
+        QString sDir = fileInfo.dir().path();
+        qDebug() << m_settings.fileManager;
+        args << "-p" << QDir::toNativeSeparators(sDir) << "-f" << fileInfo.fileName();
+        QProcess::startDetached(QDir::toNativeSeparators(m_settings.fileManager), args);
+    } else {
+        QStringList args;
+        args << "/select," + QDir::toNativeSeparators(path);
+        QProcess::startDetached("explorer.exe", args);
+    }
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+    QProcess::startDetached("dbus-send", {
+                                             "--session",
+                                             "--print-reply",
+                                             "--dest=org.freedesktop.FileManager1",
+                                             "/org/freedesktop/FileManager1",
+                                             "org.freedesktop.FileManager1.ShowItems",
+                                             "array:string:" + QUrl::fromLocalFile(path).toString(),
+                                             "string:\"\""
+                                         });
+#else
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+#endif
 }

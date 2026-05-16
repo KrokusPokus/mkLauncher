@@ -1,12 +1,11 @@
-#include <algorithm>        // needed for std::reverse();
-#include <QCoreApplication>
+#include "searchworker.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QRegularExpression>
 #include <QStandardPaths>
-#include "searchworker.h"
-#include "helpers.h"
+#include <algorithm>        // needed for std::reverse();
 
 void SearchWorker::process() {
     QElapsedTimer BenchmarkTimer;
@@ -20,10 +19,18 @@ void SearchWorker::process() {
     resultsBatch.reserve(1000); // small optimization. no measurable gains though.
 
 #if defined(Q_OS_LINUX)
-    QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
+    static const QString currentDesktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP").toUpper();
+    static const QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
+    // Note to self: appDirs contains the path in the order from user specific to system defaults
+    // We read user specific first and remember which ones we already got in "seenIds" to prevent overwriting with system defaults
     QSet<QString> seenIds;
 
-    for (const QString &dirPath : std::as_const(appDirs)) {
+    const QString localeName1 = QLocale::system().name();
+    const QString localeName2 = localeName1.left(2);
+    static const QString localKeyLong = QString("Name[%1]=").arg(localeName1); // e.g. Name[de_DE]
+    static const QString localKeyShort = QString("Name[%1]=").arg(localeName2); // e.g. Name[de]
+
+    for (const QString &dirPath : appDirs) {
         QDirIterator iter(dirPath, {"*.desktop"}, QDir::NoDotAndDotDot | QDir::Files);   // Parameter: Pfad, Namensfilter, Filter-Flags
 
         while (iter.hasNext()) {
@@ -48,34 +55,55 @@ void SearchWorker::process() {
                     in.setEncoding(QStringConverter::Utf8);
 
                     QString iniName, iniNameLocalised, iniGenericName, iniKeywords;
-                    bool bVisible = true;
-                    bool bSystemSettings = false;
+                    bool bShowApplication = true;
+                    bool bForceHidden = false;
+                    uint iSystemSettings = 0;
                     bool bInMainSection = false;
 
                     while (!in.atEnd()) {
                         QString line = in.readLine().trimmed();
 
                         if (line.startsWith('[') && line.endsWith(']')) {
-                            if (bInMainSection) break; // we were already inside the main "[Desktop Entry]" and hit another section, so break
+                            if (bInMainSection) break; // we're already inside the main "[Desktop Entry]" and hit another section -> break
 
                             bInMainSection = (line == "[Desktop Entry]");
                             continue;
                         }
 
-                        if (!bInMainSection) continue;
+                        if (!bInMainSection || line.startsWith('#')) continue;
 
                         if (line.startsWith("Name=")) iniName = line.mid(5);
-                        else if (line.startsWith("Name[de]=")) iniNameLocalised = line.mid(9);
+                        else if (line.startsWith(localKeyLong)) iniNameLocalised = line.mid(localKeyLong.size());
+                        else if (line.startsWith(localKeyShort) && iniNameLocalised.isEmpty()) iniNameLocalised = line.mid(localKeyShort.size());
                         //else if (line.startsWith("GenericName=")) iniGenericName = line.mid(12);
-                        //else if (line.startsWith("Keywords=")) iniKeywords = line.mid(9);
-                        else if (line.startsWith("NoDisplay=true")) bVisible = false;
-                        else if (line.startsWith("Exec=systemsettings")) bSystemSettings = true;
+                        else if (line.startsWith("NoDisplay=true")) bShowApplication = false;
+                        else if (line.startsWith("Exec=systemsettings")) {
+                            iSystemSettings++;
+                            if (line == "Exec=systemsettings") {
+                                iSystemSettings++;
+                            }
+                        } else if (line.startsWith("OnlyShowIn=")) {
+                            QStringList onlyShowIn = line.mid(11).split(';', Qt::SkipEmptyParts);
+                            if (!onlyShowIn.isEmpty()) {
+                                if (!onlyShowIn.contains(currentDesktop)) {
+                                    bForceHidden = true;
+                                }
+                            }
+                        } else if (line.startsWith("NotShowIn=")) {
+                            QStringList notShowIn = line.mid(10).split(';', Qt::SkipEmptyParts);
+                            qDebug() << fileName << "notShowIn:" << notShowIn << "currentDesktop:" << currentDesktop;
+                            if (!notShowIn.isEmpty()) {
+                                if (notShowIn.contains(currentDesktop)) {
+                                    bForceHidden = true;
+                                }
+                            }
+                        }
                     }
 
-                    if (bVisible || bSystemSettings) {
-                        QString alternativeName = (iniNameLocalised + " " + iniName);
-
-                        nameMatchQuality = getDesktopNameMatchQuality(filePath, m_searchString, searchStringSplit, m_recentOpenList, alternativeName.trimmed());
+                    if ((bShowApplication || iSystemSettings) && !bForceHidden) {
+                        QString alternativeName = iniNameLocalised.isEmpty() ? iniName
+                                                                             : iniNameLocalised + " " + iniName;
+                        nameMatchQuality = getDesktopNameMatchQuality(filePath, m_searchString, searchStringSplit, m_recentOpenList, alternativeName);
                         if (nameMatchQuality == 0) {
                             continue;
                         }
@@ -83,7 +111,14 @@ void SearchWorker::process() {
                         SearchResult res;
                         res.fileInfo = iter.fileInfo();
                         res.nameMatchQuality = nameMatchQuality;
-                        res.iniName = iniNameLocalised.isEmpty() ? iniName : iniNameLocalised;
+
+                        QString displayName = iniNameLocalised.isEmpty() ? iniName : iniNameLocalised;
+                        if (iSystemSettings == 1) {
+                            res.displayName = tr("System Settings:") + ' ' + displayName;
+                        } else {
+                            // If this is *not* systemsettings or is *exactly* systemsettings, don't prepend the term!
+                            res.displayName = displayName;
+                        }
 
                         resultsBatch.append(res);
 
@@ -141,3 +176,129 @@ void SearchWorker::process() {
 void SearchWorker::abort() {
     m_abort.store(true);
 }
+
+uint SearchWorker::getNameMatchQuality(const QFileInfo &fileInfo, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList) {
+    QString sFilePath = fileInfo.filePath();
+    QString sFileName = fileInfo.fileName();
+    QString sBaseNameComplete = fileInfo.completeBaseName();    // for "/home/user/archive.tar.gz" this would return "archive.tar"
+    QString sBaseName =  fileInfo.baseName();                   // for "/home/user/archive.tar.gz" this would return "archive"
+
+    if ((QString::compare(sFileName, searchString, Qt::CaseInsensitive) == 0) || (QString::compare(sBaseNameComplete, searchString, Qt::CaseInsensitive) == 0) || (QString::compare(sBaseName, searchString, Qt::CaseInsensitive) == 0)) {
+        return 99 - recentOpenList.indexOf(sFilePath);
+    }
+
+    if (sFileName.startsWith(searchString, Qt::CaseInsensitive)) {
+        return 199 - recentOpenList.indexOf(sFilePath);
+    }
+
+    if (searchString.contains("/", Qt::CaseSensitive) || searchString.contains("\\", Qt::CaseSensitive)) {
+        if (sFilePath.contains(searchString, Qt::CaseInsensitive)) {
+            return 299 - recentOpenList.indexOf(sFilePath);
+        }
+    }
+
+    // Match search terms separatately
+    bool bMatchType1 = true;
+    bool bMatchType2 = false;
+    bool bMatchType3 = false;
+    int iIndex = 0;
+    int iFoundPos = 0;
+
+    for (const QString &word : std::as_const(searchStringSplit)) {
+        iFoundPos = sFileName.indexOf(word, 0, Qt::CaseInsensitive);
+
+        if (iFoundPos == -1) { // not found
+            bMatchType1 = false;
+            break;
+        }
+
+        if (iFoundPos == 0) {   // Improved match, since one searchterm found at very beginning of filename
+            bMatchType2 = true;
+            if (iIndex == 0) {  // Further improved match, since *first* searchterm found at very beginning of filename
+                bMatchType3 = true;
+            }
+        } else if (atWordBoundary(sFileName, word)) {
+            // Improved match: one searchterm found at a word boundary in filename
+            bMatchType2 = true;
+        }
+
+        iIndex++;
+    }
+
+    if (bMatchType1 == false) {
+        return 0;
+    }
+
+    if (bMatchType3 == true) {
+        return 399 - recentOpenList.indexOf(sFilePath);
+    } else if (bMatchType2 == true) {
+        return 499 - recentOpenList.indexOf(sFilePath);
+    } else {
+        return 599 - recentOpenList.indexOf(sFilePath);
+    }
+}
+
+// Simplified version for name of app given in *.desktop files
+uint SearchWorker::getDesktopNameMatchQuality(const QString &sFilePath, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList, const QString &alternativeNames) {
+    //qDebug() << "searchstring =" << searchString << "vs alternativeName=" << alternativeName;
+
+    if (QString::compare(alternativeNames, searchString, Qt::CaseInsensitive) == 0) {
+        return 99 - recentOpenList.indexOf(sFilePath);
+    }
+
+    if (alternativeNames.startsWith(searchString, Qt::CaseInsensitive)) {
+        return 199 - recentOpenList.indexOf(sFilePath);
+    }
+
+    // Match search terms separatately
+    bool bMatchType1 = true;
+    bool bMatchType2 = false;
+    bool bMatchType3 = false;
+    int iIndex = 0;
+    int iFoundPos = 0;
+
+    for (const QString &word : std::as_const(searchStringSplit)) {
+        iFoundPos = alternativeNames.indexOf(word, 0, Qt::CaseInsensitive);
+
+        if (iFoundPos == -1) { // not found
+            bMatchType1 = false;
+            break;
+        }
+
+        if (iFoundPos == 0) {   // Improved match, since one searchterm found at very beginning of filename
+            bMatchType2 = true;
+            if (iIndex == 0) {  // Further improved match, since *first* searchterm found at very beginning of filename
+                bMatchType3 = true;
+            }
+        } else if (atWordBoundary(alternativeNames, word)) {
+            // Improved match: one searchterm found at a word boundary in filename
+            bMatchType2 = true;
+        }
+
+        iIndex++;
+    }
+
+    if (bMatchType1 == false) {
+        return 0;
+    }
+
+    if (bMatchType3 == true) {
+        return 399 - recentOpenList.indexOf(sFilePath);
+    } else if (bMatchType2 == true) {
+        return 499 - recentOpenList.indexOf(sFilePath);
+    } else {
+        return 599 - recentOpenList.indexOf(sFilePath);
+    }
+}
+
+bool SearchWorker::atWordBoundary(const QString &fileName, const QString &word) {
+    static const QString separators = " .(-_[";
+    int pos = 0;
+    while ((pos = fileName.indexOf(word, pos, Qt::CaseInsensitive)) != -1) {
+        if (pos > 0 && separators.contains(fileName[pos - 1])) {
+            return true;
+        }
+        pos += word.length();
+    }
+    return false;
+};

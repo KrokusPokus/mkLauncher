@@ -1,6 +1,9 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "searchworker.h"
+#include "settingsmanager.h"
+
 #include <QMainWindow>
 #include <QTableWidget>
 #include <QLineEdit>
@@ -15,9 +18,6 @@
 #include <QPainter>             // Added for cut item opacity drawing
 #include <QStyledItemDelegate>  // Added for cut item opacity drawing
 #include <QBoxLayout>
-
-#include "searchworker.h"
-#include "settingsmanager.h"
 
 /*
  * [QTableWidget Qt::UserRole usage]
@@ -95,6 +95,9 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+public slots:
+    void wasRestored();
+
 private slots:
     void onItemChanged(QTableWidgetItem *item);
     void onClipboardChanged();
@@ -129,7 +132,7 @@ private:
     void action_ListViewFileProperties();
     void action_ListViewOpenFiles();
     void action_ListViewRenameFiles();
-    void addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &iniName);
+    void addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &displayName);
     void finalizeUI();
     void guiHideConditional();
     void launchAction();
@@ -190,8 +193,10 @@ private:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
-    //bool event(QEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+#ifdef Q_OS_WIN
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+#endif
     void showEvent(QShowEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 };

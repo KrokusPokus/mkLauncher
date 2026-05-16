@@ -1,13 +1,14 @@
 #include "mainwindow.h"
+#include "filepropertiesdialog.h"
 #include "helpers.h"
 #include "searchworker.h"
-#include "filepropertiesdialog.h"
 
 #include <QApplication>
 #include <QBuffer>
 #include <QClipboard>
 #include <QtConcurrent>
 #include <QDateTime>
+#include <QDBusConnection>
 #include <QDesktopServices>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -37,6 +38,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <qwindow.h>
+#include <algorithm> // Für std::reverse
 #include <utility> // Für std::as_const
 
 #ifdef Q_OS_WIN
@@ -44,7 +46,9 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#define WM_MY_LAUNCHER_RESTORE (WM_APP + 123)
 #endif
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -337,6 +341,10 @@ MainWindow::MainWindow(QWidget *parent)
 
 #if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     loadMimeCache();
+
+    if (QDBusConnection::sessionBus().registerService("org.mkLauncher")) {
+        QDBusConnection::sessionBus().registerObject("/Main", this, QDBusConnection::ExportAllSlots);
+    }
 #endif
 
     // --------------------------------------------------------------------
@@ -561,7 +569,7 @@ void MainWindow::processNextBatch() {
     m_tableWidget->setRowCount(currentRows + currentBatch.size());
 
     for (int i = 0; i < currentBatch.size(); ++i) {
-        addFileToTable(currentBatch.at(i).fileInfo, currentRows + i, currentBatch.at(i).nameMatchQuality, currentBatch.at(i).iniName);
+        addFileToTable(currentBatch.at(i).fileInfo, currentRows + i, currentBatch.at(i).nameMatchQuality, currentBatch.at(i).displayName);
     }
 
     // Using an instant timer gives the app time to process messages in the interim
@@ -1192,34 +1200,10 @@ void MainWindow::action_ListViewBrowseToFile() {
     if (!item) return;
 
     QString path = m_tableWidget->item(item->row(), eColName)->data(Qt::UserRole).toString();
-#ifdef Q_OS_WIN
-    QStringList args;
-    if (!m_settings.fileManager.isEmpty()) {
-        QFileInfo fileInfo(path);
-        QString sDir = fileInfo.dir().path();
-        qDebug() << m_settings.fileManager;
-        args << "-p" << QDir::toNativeSeparators(sDir) << "-f" << fileInfo.fileName();
-        QProcess::startDetached(QDir::toNativeSeparators(m_settings.fileManager), args);
-    } else {
-        QStringList args;
-        args << "/select," + QDir::toNativeSeparators(path);
-        QProcess::startDetached("explorer.exe", args);
-    }
-#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
-    QProcess::startDetached("dbus-send", {
-                                        "--session",
-                                        "--print-reply",
-                                        "--dest=org.freedesktop.FileManager1",
-                                        "/org/freedesktop/FileManager1",
-                                        "org.freedesktop.FileManager1.ShowItems",
-                                        "array:string:" + QUrl::fromLocalFile(path).toString(),
-                                        "string:\"\""
-                                        });
-#else
-    QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
-#endif
+    browseToFile(path);
     guiHideConditional();
 }
+
 
 void MainWindow::action_ListViewRenameFiles() {
     QTableWidgetItem *item = m_tableWidget->currentItem();
@@ -1299,12 +1283,12 @@ void MainWindow::onTimedUpdateIcons() {
 //################################################################################################
 // Misc
 
-void MainWindow::addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &iniName) {
+void MainWindow::addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &displayName) {
 
     // Icon & Name
     QString visibleName;
-    if (!iniName.isEmpty())
-        visibleName = iniName;
+    if (!displayName.isEmpty())
+        visibleName = displayName;
     else
         visibleName = fileInfo.fileName();
 
@@ -1407,10 +1391,31 @@ void MainWindow::launchAction() {
                 qDebug() << "(QDesktopServices::openUrl(QUrl(mailto:" + input1 + ")))  failed";
             }
         }
-    } else {
-        // --- FALL 3: SEARCH MODIFIER (m_LineEdit2 nicht leer) ---
 
-        // Nur Buchstaben erlauben (Cleanop Logik)
+#ifdef Q_OS_WIN
+
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+        QString possiblePath = input1;
+
+        if (possiblePath.startsWith("~/")) {
+            possiblePath = QDir::homePath() + possiblePath.mid(1);
+        } else if (possiblePath.startsWith("$HOME/")) {
+            possiblePath = QDir::homePath() + possiblePath.mid(5);
+        }
+
+        possiblePath = QDir::cleanPath(possiblePath);
+
+        QFileInfo checkFile(possiblePath);
+        if (checkFile.exists()) {
+            browseToFile(possiblePath);
+            guiHideConditional();
+            return;
+        }
+#endif
+    } else {
+        // --- Case 3: search modifiers (m_LineEdit2 not empty) ---
+
+        // allow only letters
         QString cleanOp;
         for(auto c : input2) { if(c.isLetter()) cleanOp += c; }
 
@@ -1420,7 +1425,6 @@ void MainWindow::launchAction() {
             input2 = cleanOp;
         }
 
-        // URI Encoding für die Suche
         QString searchText = QUrl::toPercentEncoding(input1);
         QString url;
 
@@ -1447,7 +1451,7 @@ void MainWindow::launchAction() {
         return;
     }
 
-    // --- FALL 4: STANDARD OPEN (Dateien/Programme) ---
+    // default open
     action_ListViewOpenFiles();
 }
 
@@ -1544,14 +1548,13 @@ void MainWindow::loadMimeCache() {
     m_mimeCache.clear();
     m_mimeCache.reserve(500);
 
-    QStringList cachePaths = {
-        "/usr/share/applications/mimeinfo.cache",
-        "/usr/local/share/applications/mimeinfo.cache",
-        QDir::homePath() + "/.local/share/applications/mimeinfo.cache"
-    };
-
-    for (const QString &path : cachePaths) {
-        parseMimeInfoCache(path);
+    QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
+    // Note to self: appDirs contains the path in the order from user specific to system defaults
+    // We want to reverse this so we read the system default folders *first* and then overwrite with data from the user specific locations
+    std::reverse(appDirs.begin(), appDirs.end());
+    for (const QString &dirPath : std::as_const(appDirs)) {
+        QString cachePath = QDir(dirPath).filePath("mimeinfo.cache");
+        parseMimeInfoCache(cachePath);
     }
 
     parseMimeAppsList(QDir::homePath() + "/.config/mimeapps.list");
@@ -1623,6 +1626,18 @@ void MainWindow::parseMimeAppsList(const QString &path) {
     }
 }
 
+
+//######################################################################################
+// Public Slots
+
+void MainWindow::wasRestored() {
+    qDebug() << "wasRestored()";
+    //this->raise();
+    //this->activateWindow();
+    m_LineEdit1->setFocus();
+    m_LineEdit1->selectAll();
+}
+
 //######################################################################################
 // Protected Overrides
 
@@ -1642,20 +1657,6 @@ void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     updateColumns();
 }
-
-/*
-bool MainWindow::event(QEvent *event) {
-    if (event->type() == QEvent::WindowStateChange) {
-        // Seems to not fire at all...
-        qDebug() << "QEvent::WindowStateChange";
-        QTimer::singleShot(50, this, [this]() {
-            m_LineEdit1->setFocus();
-            m_LineEdit1->selectAll();
-        });
-    }
-    return QMainWindow::event(event);
-}
-*/
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
 
@@ -1772,3 +1773,15 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
 
     return QObject::eventFilter(obj, event);
 }
+
+#ifdef Q_OS_WIN
+// Note: To use this, you can do something akin to "PostMessage(hWnd, 0x807B, 0, 0)" with the hWnd of the window with the name "mkLauncher" and class "Qt6110QWindowIcon"
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    MSG *msg = static_cast<MSG *>(message);
+    if (msg->message == WM_MY_LAUNCHER_RESTORE) {
+        this->wasRestored();
+        return true;
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif

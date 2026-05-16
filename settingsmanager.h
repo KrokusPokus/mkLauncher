@@ -1,13 +1,11 @@
 #ifndef SETTINGSMANAGER_H
 #define SETTINGSMANAGER_H
 
-#include <QString>
-
-#include <QString>
+#include <QDir>
 #include <QSet>
 #include <QSettings>
-#include <QDir>
 #include <QStandardPaths>
+#include <QString>
 
 class SettingsManager {
 public:

@@ -1,7 +1,8 @@
+#include "settingsmanager.h"
+
 #include <QCoreApplication>
 #include <QFile>
 
-#include "settingsmanager.h"
 
 SettingsManager::SettingsManager() {
 	load(); // Lädt beim Erstellen automatisch

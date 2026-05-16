@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(mkLauncher LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Concurrent LinguistTools Network)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Concurrent LinguistTools Network DBus)
 
 qt_add_translations(mkLauncher
     TS_FILES i18n/mkLauncher_de.ts
@@ -30,6 +30,29 @@ qt_standard_project_setup()
 # Diese Zeile ist entscheidend, damit Qt die Ressourcen kompiliert!
 set(CMAKE_AUTORCC ON)
 
+# --- PERFORMANCE FLAGS START ---
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT result)
+if(result)
+    # Aktiviert LTO/IPO für alle Targets
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
+if(MSVC)
+    add_compile_options(/O2 /Ot /GL /arch:AVX2)
+else()
+    # -O3: Aggressive Optimierung
+    # -march=native: Nutzt SSE/AVX der aktuellen CPU
+    # -flto: Link Time Optimization
+    # -fomit-frame-pointer: Befreit ein Register für Daten (statt Stack-Tracking)
+    add_compile_options(-O3 -march=native -flto -fomit-frame-pointer)
+endif()
+# --- PERFORMANCE FLAGS END ---
+
 qt_add_executable(mkLauncher
     WIN32 MACOSX_BUNDLE
     main.cpp
@@ -47,6 +70,7 @@ target_link_libraries(mkLauncher
         Qt::Core
         Qt::Widgets
         Qt6::Concurrent
+        Qt6::DBus
         Qt6::Network
         $<$<PLATFORM_ID:Windows>:zlibstatic>
         $<$<PLATFORM_ID:Linux>:ZLIB::ZLIB>

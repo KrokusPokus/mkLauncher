@@ -3,12 +3,11 @@
 
 #include <QFileInfo>
 #include <QObject>
-#include <QSet>
 
 struct SearchResult {
     QFileInfo fileInfo;
     int nameMatchQuality;
-    QString iniName;
+    QString displayName;
 };
 
 // WICHTIG: Damit Qt diese Struktur zwischen Threads verschicken kann,
@@ -32,6 +31,10 @@ public slots:
     void abort();
 
 private:
+    uint getNameMatchQuality(const QFileInfo &fileInfo, const QString &searchStringFilename, const QStringList &searchStringSplit, const QStringList &recentOpenList);
+    uint getDesktopNameMatchQuality(const QString &filePath, const QString &searchString, const QStringList &searchStringSplit, const QStringList &recentOpenList, const QString &alternativeNames);
+    bool atWordBoundary(const QString &fileName, const QString &word);
+
     std::atomic<bool> m_abort{false};
     QStringList m_searchFolders;
     QString m_searchString;

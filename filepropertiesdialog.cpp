@@ -1,12 +1,14 @@
+#include "filepropertiesdialog.h"
+#include "helpers.h"
+
 #include <QFileIconProvider>
 #include <QDateTime>
 #include <QDirIterator>
 #include <QHBoxLayout>
+#include <QMessageBox>
 #include <QMimeDatabase>
 #include <QMimeType>
 
-#include "filepropertiesdialog.h"
-#include "helpers.h"
 
 FilePropertiesDialog::FilePropertiesDialog(const QStringList &filePaths, QWidget *parent)
     : QDialog(parent), m_filePaths(filePaths) {
@@ -171,18 +173,34 @@ void FilePropertiesDialog::setupUi() {
 
 #ifdef Q_OS_WIN
     // Attributes
+    m_readOnlyCB = new QCheckBox(tr("Read-only"));
+    m_hiddenCB = new QCheckBox(tr("Hidden"));
+    m_systemCB = new QCheckBox(tr("System"));
+
+    // horizontally aligned version
     auto *attrLayout = new QHBoxLayout();
     attrLayout->setContentsMargins(30, 10, 30, 30);
     attrLayout->setSpacing(10);
     QLabel *attributesLabel = new QLabel(tr("Attributes:"));
-    m_readOnlyCB = new QCheckBox(tr("Read-only"));
-    m_hiddenCB = new QCheckBox(tr("Hidden"));
-    m_systemCB = new QCheckBox(tr("System"));
     attrLayout->addWidget(attributesLabel);
     attrLayout->addWidget(m_readOnlyCB);
     attrLayout->addWidget(m_hiddenCB);
     attrLayout->addWidget(m_systemCB);
     mainLayout->addLayout(attrLayout);
+/*
+    // vertically aligned version
+    auto *permGrid = new QGridLayout();
+    permGrid->setContentsMargins(30, 10, 30, 30);
+    permGrid->setSpacing(5);
+    permGrid->setHorizontalSpacing(30);
+    permGrid->setAlignment(Qt::AlignLeft);
+
+    permGrid->addWidget(new QLabel(tr("Attributes:")), 0, 0);
+    permGrid->addWidget(m_readOnlyCB, 0, 1);
+    permGrid->addWidget(m_hiddenCB, 1, 1);
+    permGrid->addWidget(m_systemCB, 2, 1);
+    mainLayout->addLayout(permGrid);
+*/
 #elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     auto *securityLayout = new QFormLayout();
     securityLayout->setContentsMargins(30, 10, 30, 10);
@@ -221,7 +239,6 @@ void FilePropertiesDialog::setupUi() {
         permGrid->addWidget(new QLabel(rows[i]), i + 1, 0);
         for (int j = 0; j < 3; ++j) {
             QCheckBox *cb = new QCheckBox();
-            cb->setEnabled(false);
             m_permCBs[i][j] = cb;
             permGrid->addWidget(cb, i + 1, j + 1);
         }
@@ -259,7 +276,7 @@ void FilePropertiesDialog::loadFileInfo() {
 
     QFileIconProvider provider;
     m_iconLabel->setPixmap(QIcon::fromTheme(mime.iconName(), provider.icon(fileInfo)).pixmap(48, 48));
-    m_nameEdit->setText(fileInfo.completeBaseName());
+    m_nameEdit->setText(fileInfo.fileName());
     m_pathEdit->setText(QDir::toNativeSeparators(fileInfo.absolutePath()));
     m_typeLabel->setText(getFileType(fileInfo));
 
@@ -270,9 +287,13 @@ void FilePropertiesDialog::loadFileInfo() {
         m_containsLabel->setText(tr("%1 Files")
                                      .arg(m_locale.toString(fileCount)));
     } else {
-        m_sizeLabel->setText(tr("%1 (%2 Bytes)")
-                                 .arg(formatAdaptiveSize(fileInfo.size()))
-                                 .arg(m_locale.toString(fileInfo.size())));
+        if (fileInfo.size() <= 1024) {
+            m_sizeLabel->setText(formatAdaptiveSize(fileInfo.size()));
+        } else {
+            m_sizeLabel->setText(tr("%1 (%2 Bytes)")
+                                     .arg(formatAdaptiveSize(fileInfo.size()))
+                                     .arg(m_locale.toString(fileInfo.size())));
+        }
     }
 
     m_createdLabel->setText(fileInfo.birthTime().toString("yyyy-MM-dd  HH:mm:ss"));
@@ -284,9 +305,14 @@ void FilePropertiesDialog::loadFileInfo() {
     m_readOnlyCB->setChecked(fileAttr & FILE_ATTRIBUTE_READONLY);
     m_hiddenCB->setChecked(fileAttr & FILE_ATTRIBUTE_HIDDEN);
     m_systemCB->setChecked(fileAttr & FILE_ATTRIBUTE_SYSTEM);
-#endif
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+    QDir parentDir = fileInfo.dir();
+    bool canModifyAttributes = QFileInfo(parentDir.absolutePath()).isWritable();
+
+    m_readOnlyCB->setEnabled(canModifyAttributes);
+    m_hiddenCB->setEnabled(canModifyAttributes);
+    m_systemCB->setEnabled(canModifyAttributes);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     QString ownerName = fileInfo.owner();
     if (ownerName.isEmpty()) {
         m_ownerLabel->setText(QString::number(fileInfo.ownerId()));
@@ -302,6 +328,7 @@ void FilePropertiesDialog::loadFileInfo() {
     }
 
     QFile::Permissions p = fileInfo.permissions();
+    bool canModify = fileInfo.isWritable();
 
     int owner = ((p & QFile::ReadOwner) ? 4 : 0) + ((p & QFile::WriteOwner) ? 2 : 0) + ((p & QFile::ExeOwner) ? 1 : 0);
     int group = ((p & QFile::ReadGroup) ? 4 : 0) + ((p & QFile::WriteGroup) ? 2 : 0) + ((p & QFile::ExeGroup) ? 1 : 0);
@@ -312,14 +339,23 @@ void FilePropertiesDialog::loadFileInfo() {
     m_permCBs[0][0]->setChecked(p & QFile::ReadOwner);
     m_permCBs[0][1]->setChecked(p & QFile::WriteOwner);
     m_permCBs[0][2]->setChecked(p & QFile::ExeOwner);
+    m_permCBs[0][0]->setEnabled(canModify);
+    m_permCBs[0][1]->setEnabled(canModify);
+    m_permCBs[0][2]->setEnabled(canModify);
 
     m_permCBs[1][0]->setChecked(p & QFile::ReadGroup);
     m_permCBs[1][1]->setChecked(p & QFile::WriteGroup);
     m_permCBs[1][2]->setChecked(p & QFile::ExeGroup);
+    m_permCBs[1][0]->setEnabled(canModify);
+    m_permCBs[1][1]->setEnabled(canModify);
+    m_permCBs[1][2]->setEnabled(canModify);
 
     m_permCBs[2][0]->setChecked(p & QFile::ReadOther);
     m_permCBs[2][1]->setChecked(p & QFile::WriteOther);
     m_permCBs[2][2]->setChecked(p & QFile::ExeOther);
+    m_permCBs[2][0]->setEnabled(canModify);
+    m_permCBs[2][1]->setEnabled(canModify);
+    m_permCBs[2][2]->setEnabled(canModify);
 #endif
 }
 
@@ -355,9 +391,13 @@ void FilePropertiesDialog::loadFileInfoMultiMode() {
 
 void FilePropertiesDialog::updateMultiUi(ProgressResult result) {
 
-    m_sizeLabel->setText(tr("%1 (%2 Bytes)")
-                             .arg(formatAdaptiveSize(result.size))
-                             .arg(m_locale.toString(result.size)));
+    if (result.size <= 1024) {
+        m_sizeLabel->setText(formatAdaptiveSize(result.size));
+    } else {
+        m_sizeLabel->setText(tr("%1 (%2 Bytes)")
+                                 .arg(formatAdaptiveSize(result.size))
+                                 .arg(m_locale.toString(result.size)));
+    }
 
     m_containsLabel->setText(tr("%1 Files, %2 Folders")
                                  .arg(m_locale.toString(result.files))
@@ -387,7 +427,61 @@ QString FilePropertiesDialog::getFileType(const QFileInfo &info) {
 }
 
 void FilePropertiesDialog::onOkPressed() {
-    // Todo: add logic to write changed file attributes
+#ifdef Q_OS_WIN
+    if (!m_isMultiMode && !m_filePaths.isEmpty()) {
+        QString filePath = m_filePaths.first();
+
+        // Aktuelle Attribute holen
+        DWORD attr = GetFileAttributesW(reinterpret_cast<const WCHAR*>(filePath.utf16()));
+
+        if (attr != INVALID_FILE_ATTRIBUTES) {
+            // Bits basierend auf Checkboxen setzen oder löschen
+            if (m_readOnlyCB->isChecked()) attr |= FILE_ATTRIBUTE_READONLY;
+            else                           attr &= ~FILE_ATTRIBUTE_READONLY;
+
+            if (m_hiddenCB->isChecked())   attr |= FILE_ATTRIBUTE_HIDDEN;
+            else                           attr &= ~FILE_ATTRIBUTE_HIDDEN;
+
+            if (m_systemCB->isChecked())   attr |= FILE_ATTRIBUTE_SYSTEM;
+            else                           attr &= ~FILE_ATTRIBUTE_SYSTEM;
+
+            // Zurückschreiben
+            if (!SetFileAttributesW(reinterpret_cast<const WCHAR*>(filePath.utf16()), attr)) {
+                QMessageBox::warning(this, tr("Error"),
+                                     tr("Failed to apply file attributes.\nDo you have permission to modify this file?"));
+                return; // Dialog offen lassen
+            }
+        }
+    }
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+    // Berechtigungen nur im Single-Modus speichern, da m_permCBs nur dort existieren
+    if (!m_isMultiMode && !m_filePaths.isEmpty()) {
+        const QString &filePath = m_filePaths.first();
+        QFile::Permissions newPerms = QFile::Permissions();
+
+        // 1. Besitzer-Rechte (Row 0)
+        if (m_permCBs[0][0]->isChecked()) newPerms |= QFile::ReadOwner;
+        if (m_permCBs[0][1]->isChecked()) newPerms |= QFile::WriteOwner;
+        if (m_permCBs[0][2]->isChecked()) newPerms |= QFile::ExeOwner;
+
+        // 2. Gruppen-Rechte (Row 1)
+        if (m_permCBs[1][0]->isChecked()) newPerms |= QFile::ReadGroup;
+        if (m_permCBs[1][1]->isChecked()) newPerms |= QFile::WriteGroup;
+        if (m_permCBs[1][2]->isChecked()) newPerms |= QFile::ExeGroup;
+
+        // 3. Andere-Rechte (Row 2)
+        if (m_permCBs[2][0]->isChecked()) newPerms |= QFile::ReadOther;
+        if (m_permCBs[2][1]->isChecked()) newPerms |= QFile::WriteOther;
+        if (m_permCBs[2][2]->isChecked()) newPerms |= QFile::ExeOther;
+
+        // Berechtigungen auf das Dateisystem anwenden
+        if (!QFile::setPermissions(filePath, newPerms)) {
+            QMessageBox::warning(this, tr("Error"),
+                                 tr("Failed to set permissions for:\n%1\n\nDo you have sufficient rights?").arg(filePath));
+            return; // Dialog nicht schließen, damit der Nutzer es korrigieren kann
+        }
+    }
+#endif
     accept();
 }
 
