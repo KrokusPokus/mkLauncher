@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include "settingsmanager.h"
 
 #include <QDir>
 #include <QMimeType>
@@ -230,13 +231,14 @@ void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList) {
 
 void browseToFile(const QString &path) {
 #ifdef Q_OS_WIN
+    SettingsManager settings;
     QStringList args;
-    if (!m_settings.fileManager.isEmpty()) {
+    if (!settings.fileManager.isEmpty()) {
         QFileInfo fileInfo(path);
         QString sDir = fileInfo.dir().path();
-        qDebug() << m_settings.fileManager;
+        qDebug() << settings.fileManager;
         args << "-p" << QDir::toNativeSeparators(sDir) << "-f" << fileInfo.fileName();
-        QProcess::startDetached(QDir::toNativeSeparators(m_settings.fileManager), args);
+        QProcess::startDetached(QDir::toNativeSeparators(settings.fileManager), args);
     } else {
         QStringList args;
         args << "/select," + QDir::toNativeSeparators(path);

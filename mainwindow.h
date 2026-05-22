@@ -64,13 +64,17 @@ public:
 
 
 class CutDelegate : public QStyledItemDelegate {
+private:
+    const QSet<QString> &m_cutFilePaths;
+
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
+    CutDelegate(const QSet<QString> &cutFilePaths, QObject *parent = nullptr)
+        : QStyledItemDelegate(parent), m_cutFilePaths(cutFilePaths) {}
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        // Wir nutzen eine benutzerdefinierte Daten-Rolle (z.B. Qt::UserRole + 5),
-        // um zu prüfen, ob dieses Item "ausgeschnitten" ist.
-        bool isCut = index.data(Qt::UserRole + 5).toBool();
+        QString path = index.siblingAtColumn(0).data(Qt::UserRole).toString();
+
+        bool isCut = m_cutFilePaths.contains(path);
 
         if (isCut) {
             painter->save();
@@ -96,7 +100,7 @@ public:
     ~MainWindow() override;
 
 public slots:
-    void wasRestored();
+    Q_SCRIPTABLE void wasRestored();
 
 private slots:
     void onItemChanged(QTableWidgetItem *item);
@@ -119,7 +123,10 @@ private:
         eColQuality = 5,
     };
 
-    QStringList getTablePathList();
+    QString getActiveViewCurrentItemPath();
+    QStringList getActiveViewPathList();
+    QSet<int> getActiveViewRowSet();
+
     QString RecentInputList_GetPrevious(const QString &currentText);
     QString RecentInputList_GetNext(const QString &currentText);
     void action_EditSettingsFile();
@@ -145,10 +152,10 @@ private:
     void RecentInputList_Add(QString searchTerm);
     void RecentOpenList_Add(const QString &filePath);
     void removeCutMarkers();
-    void setupClipboardForCut(const QSet<int> &rowSet);
+    void setupClipboardForCut(const QSet<QString> &cutFilePaths);
+    bool showDeleteConfirmationDialog(const QStringList &pathList, bool bRecycleOnly);
     void startSearch();
     void updateColumns();
-    void validateInputBoxRegex();
 
     QWidget *m_centralWidget = nullptr;
     QVBoxLayout *m_mainLayout = nullptr;
@@ -184,7 +191,7 @@ private:
     QHash<QString, QStringList> m_mimeCache;
     QQueue<QList<SearchResult>> m_pendingBatches;
     QByteArray m_currentClipboardToken;
-    QSet<int> m_rowsWithCutMarkers;
+    QSet<QString> m_cutFilePaths;
     SettingsManager m_settings;
 
 #ifdef Q_OS_WIN

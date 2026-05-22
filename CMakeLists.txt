@@ -76,6 +76,11 @@ target_link_libraries(mkLauncher
         $<$<PLATFORM_ID:Linux>:ZLIB::ZLIB>
 )
 
+# Beschleunigt den Start unter Linux, indem ungenutzte Shared Libraries ignoriert werden
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(mkLauncher PRIVATE -Wl,--as-needed)
+endif()
+
 install(TARGETS mkLauncher
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
