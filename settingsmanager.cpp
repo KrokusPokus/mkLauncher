@@ -27,8 +27,10 @@ void SettingsManager::load() {
 
 	// Interface
 	alternatingRowColors = s.value("Interface/AlternatingRowColors", true).toBool();
+    executableFilesRed   = s.value("Interface/ExecutableFilesRed", true).toBool();
 	fontNameOverride     = s.value("Interface/FontNameOverride", "").toString();
 	fontSizeOverride     = s.value("Interface/FontSizeOverride", 0).toInt();
+    menuOnMouseUp        = s.value("Interface/MenuOnMouseUp", true).toBool();
 	showGrid             = s.value("Interface/ShowGrid", false).toBool();
 	showPlaceholderText  = s.value("Interface/ShowPlaceholderText", true).toBool();
     showIconsInMenu      = s.value("Interface/ShowIconsInMenu", true).toBool();
@@ -65,8 +67,10 @@ void SettingsManager::saveSettings() {
 
     // Interface
     safeSetValue(s, "Interface/AlternatingRowColors", alternatingRowColors);
+    safeSetValue(s, "Interface/ExecutableFilesRed", executableFilesRed);
     safeSetValue(s, "Interface/FontNameOverride", fontNameOverride);
     safeSetValue(s, "Interface/FontSizeOverride", fontSizeOverride);
+    safeSetValue(s, "Interface/MenuOnMouseUp", menuOnMouseUp);
     safeSetValue(s, "Interface/ShowGrid", showGrid);
     safeSetValue(s, "Interface/ShowPlaceholderText", showPlaceholderText);
     safeSetValue(s, "Interface/ShowIconsInMenu", showIconsInMenu);

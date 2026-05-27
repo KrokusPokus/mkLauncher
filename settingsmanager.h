@@ -29,6 +29,8 @@ public:
     QString renameTool;
 
 	bool alternatingRowColors;
+    bool executableFilesRed;
+    bool menuOnMouseUp;
 	bool showGrid;
     bool showIconsInMenu;
 	bool showPlaceholderText;

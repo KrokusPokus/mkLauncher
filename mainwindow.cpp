@@ -228,7 +228,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_tableWidget->horizontalHeader()->setHighlightSections(false);
 
     m_tableWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_tableWidget->setContextMenuPolicy(Qt::NoContextMenu);
 
     m_tableWidget->setAlternatingRowColors(m_settings.alternatingRowColors);
     m_tableWidget->setShowGrid(m_settings.showGrid);
@@ -361,9 +361,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --------------------------------------------------------------------
 
-    m_LineEdit1->installEventFilter(this);
-    m_LineEdit2->installEventFilter(this);
-    m_tableWidget->installEventFilter(this);
+    qApp->installEventFilter(this);
 
     // --------------------------------------------------------------------
 
@@ -374,7 +372,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_LineEdit1, &QLineEdit::textChanged, this, &MainWindow::handleTextChange);
 
     connect(m_tableWidget, &Custom_QTableWidget::itemChanged, this, &MainWindow::onItemChanged);
-    connect(m_tableWidget, &Custom_QTableWidget::customContextMenuRequested, this, &MainWindow::onShowContextMenu);
     connect(m_tableWidget, &Custom_QTableWidget::itemDoubleClicked, this, &MainWindow::onListViewItemDoubleClicked);
     connect(m_tableWidget->verticalScrollBar(), &QScrollBar::valueChanged, this, &MainWindow::onVerticalBarScrollChange);
     connect(m_tableWidget->horizontalHeader(), &QHeaderView::sectionClicked, this, &MainWindow::onListViewHeaderClicked);
@@ -1213,8 +1210,16 @@ void MainWindow::addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMat
         }
     }
 
+#ifdef Q_OS_WIN
+    QString ext = fileInfo.suffix().toLower();
+    bool bUseRedText = ((ext == "exe" || ext == "scr") && !fileInfo.isDir() && m_settings.executableFilesRed);
+#elif defined(Q_OS_LINUX)
+    bool bUseRedText = (fileInfo.isExecutable() && !fileInfo.isDir() && m_settings.executableFilesRed);
+#endif
+
     nameItem->setIcon(it.value());
     nameItem->setData(Qt::UserRole, QVariant::fromValue(fileInfo));
+    nameItem->setData(Qt::UserRole + 2, bUseRedText);
     nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
     m_tableWidget->setItem(iRow, eColName, nameItem);
 
@@ -1590,8 +1595,9 @@ bool MainWindow::showDeleteConfirmationDialog(const QStringList &pathList, bool 
 
 
 //######################################################################################
-// Public Slots
+// Functions to receive data from other applications
 
+// This belongs to a Public Slot!
 void MainWindow::wasRestored() {
     qDebug() << "wasRestored()";
     //this->raise();
@@ -1600,18 +1606,24 @@ void MainWindow::wasRestored() {
     m_LineEdit1->selectAll();
 }
 
+#ifdef Q_OS_WIN
+// Note: To use this, you can do something akin to "PostMessage(hWnd, 0x807B, 0, 0)" with the hWnd of the window with the name "mkLauncher" and class "Qt6110QWindowIcon"
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
+    MSG *msg = static_cast<MSG *>(message);
+    if (msg->message == WM_MY_LAUNCHER_RESTORE) {
+        this->wasRestored();
+        return true;
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
+
 //######################################################################################
 // Protected Overrides
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    //m_settings.saveSettings();    // This would overwrite any settings the user might have changed in the INI since the process started
     m_settings.saveHistory();
     event->accept();
-}
-
-void MainWindow::resizeEvent(QResizeEvent *event) {
-    QMainWindow::resizeEvent(event);
-    updateColumns();
 }
 
 // This happens only once, on creating the window
@@ -1620,15 +1632,48 @@ void MainWindow::showEvent(QShowEvent *event) {
     updateColumns();
 }
 
+// Installed on qApp
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
-
     if (obj == m_tableWidget->viewport() && event->type() == QEvent::Resize) {
         m_timerUpdateIcons->start(100);
+        updateColumns();
+
+        /*
+        if (m_tableWidget) {
+            QTableWidgetItem *currentItem = m_tableWidget->currentItem();
+            if (currentItem) {
+                m_tableWidget->scrollToItem(currentItem, QAbstractItemView::EnsureVisible);
+            }
+        }
+        */
     }
 
-    if (event->type() == QEvent::KeyPress) {
-        QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
+    if (event->type() == QEvent::MouseButtonPress) {
+        if (obj == m_tableWidget->viewport()) {
+            auto *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::RightButton && !m_settings.menuOnMouseUp) {
+                QPoint pos = mouseEvent->pos();
+                // Use Lambda to trigger menu after button event has finished processing
+                // This is a workaround. Calling onShowContextMenu() directly would block the default funtion of focusing the item below the mouse cursor.
+                QTimer::singleShot(0, this, [this, pos]() {
+                    onShowContextMenu(pos);
+                });
 
+                return false;
+            }
+        }
+    }
+    else if (event->type() == QEvent::MouseButtonRelease) {
+        if (obj == m_tableWidget->viewport()) {
+            auto *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::RightButton && m_settings.menuOnMouseUp) {
+                onShowContextMenu(mouseEvent->pos());
+                return true;
+            }
+        }
+    }
+    else if (event->type() == QEvent::KeyPress) {
+        QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
         if (obj == m_LineEdit1) {
             if (keyEvent->modifiers() == Qt::ControlModifier) {
                 if (keyEvent->key() == Qt::Key_Y) {
@@ -1644,8 +1689,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                 }
             }
         }
-
-        if (obj == m_LineEdit2) {
+        else if (obj == m_LineEdit2) {
             if (keyEvent->key() == Qt::Key_Backspace) {
                 if (m_LineEdit2->text().isEmpty()) {
                     m_LineEdit1->setFocus();
@@ -1654,8 +1698,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                 }
             }
         }
-
-        if (obj == m_tableWidget) {
+        else if (obj == m_tableWidget) {
             if (keyEvent->key() == Qt::Key_Home) {
                 if ((keyEvent->modifiers() & Qt::ShiftModifier) == 0) {
                     if (m_tableWidget->rowCount() > 0) {
@@ -1679,6 +1722,7 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
                 }
             }
         }
+
 
         if (keyEvent->key() == Qt::Key_Escape) {
             if (m_bSearchActive.load()) {
@@ -1733,17 +1777,5 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
         }
     }
 
-    return QObject::eventFilter(obj, event);
+    return false;
 }
-
-#ifdef Q_OS_WIN
-// Note: To use this, you can do something akin to "PostMessage(hWnd, 0x807B, 0, 0)" with the hWnd of the window with the name "mkLauncher" and class "Qt6110QWindowIcon"
-bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
-    MSG *msg = static_cast<MSG *>(message);
-    if (msg->message == WM_MY_LAUNCHER_RESTORE) {
-        this->wasRestored();
-        return true;
-    }
-    return QMainWindow::nativeEvent(eventType, message, result);
-}
-#endif

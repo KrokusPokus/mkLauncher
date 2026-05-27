@@ -24,6 +24,7 @@
  *
  *  eColName    Qt::UserRole        QItemInfo
  *  eColName	Qt::UserRole + 1	bool trueIcon
+ *  eColName	Qt::UserRole + 2	bool UseRedText
  *  eColSize	Qt::UserRole		qint64 sizeInBytes
  *  any item	Qt::UserRole + 5	bool isCut
 */
@@ -64,6 +65,7 @@ public:
 
 
 class tableStyledItemDelegate : public QStyledItemDelegate {
+    Q_OBJECT
 private:
     const QSet<QString> &m_cutFilePaths;
 
@@ -71,15 +73,9 @@ protected:
     void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
         QStyledItemDelegate::initStyleOption(option, index);
 
-        QFileInfo fileInfo = index.siblingAtColumn(0).data(Qt::UserRole).value<QFileInfo>();
-#ifdef Q_OS_WIN
-        QString ext = fileInfo.suffix().toLower();
-        bool isExecutable = (ext == "exe" || ext == "scr");
-        if (isExecutable && !fileInfo.isDir()) {
-#elif defined (Q_OS_LINUX)
-        if (fileInfo.isExecutable() && !fileInfo.isDir()) {
-#endif
-            static const QColor exeRed(255, 0, 0);
+        bool bRedText = index.siblingAtColumn(0).data(Qt::UserRole + 2).value<bool>();
+        if (bRedText) {
+            static const QColor exeRed(255, 74, 70);
             option->palette.setColor(QPalette::Text, exeRed);
             option->palette.setColor(QPalette::HighlightedText, exeRed);
         }
@@ -219,11 +215,10 @@ private:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 #ifdef Q_OS_WIN
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
-    void showEvent(QShowEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
 };
 #endif // MAINWINDOW_H
