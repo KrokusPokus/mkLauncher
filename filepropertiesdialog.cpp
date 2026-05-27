@@ -11,7 +11,7 @@
 
 
 FilePropertiesDialog::FilePropertiesDialog(const QStringList &filePaths, QWidget *parent)
-: QDialog(parent), m_filePaths(filePaths) {
+    : QDialog(parent), m_filePaths(filePaths) {
 
     if (m_filePaths.isEmpty()) {
         this->close();
@@ -88,11 +88,11 @@ void FilePropertiesDialog::setupUiMultiMode() {
 
     mainLayout->addStretch(); // Schiebt alles nach oben
 
-    #if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     auto *line2 = new QFrame();
     line2->setFrameShape(QFrame::HLine);
     mainLayout->addWidget(line2);
-    #endif
+#endif
 
     // Buttons
     auto *buttonLayout = new QHBoxLayout();
@@ -171,7 +171,7 @@ void FilePropertiesDialog::setupUi() {
     line3->setFrameShadow(QFrame::Sunken);
     mainLayout->addWidget(line3);
 
-    #ifdef Q_OS_WIN
+#ifdef Q_OS_WIN
     // Attributes
     m_readOnlyCB = new QCheckBox(tr("Read-only"));
     m_hiddenCB = new QCheckBox(tr("Hidden"));
@@ -187,21 +187,21 @@ void FilePropertiesDialog::setupUi() {
     attrLayout->addWidget(m_hiddenCB);
     attrLayout->addWidget(m_systemCB);
     mainLayout->addLayout(attrLayout);
-    /*
-     *    // vertically aligned version
-     *    auto *permGrid = new QGridLayout();
-     *    permGrid->setContentsMargins(30, 10, 30, 30);
-     *    permGrid->setSpacing(5);
-     *    permGrid->setHorizontalSpacing(30);
-     *    permGrid->setAlignment(Qt::AlignLeft);
-     *
-     *    permGrid->addWidget(new QLabel(tr("Attributes:")), 0, 0);
-     *    permGrid->addWidget(m_readOnlyCB, 0, 1);
-     *    permGrid->addWidget(m_hiddenCB, 1, 1);
-     *    permGrid->addWidget(m_systemCB, 2, 1);
-     *    mainLayout->addLayout(permGrid);
-     */
-    #elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+/*
+    // vertically aligned version
+    auto *permGrid = new QGridLayout();
+    permGrid->setContentsMargins(30, 10, 30, 30);
+    permGrid->setSpacing(5);
+    permGrid->setHorizontalSpacing(30);
+    permGrid->setAlignment(Qt::AlignLeft);
+
+    permGrid->addWidget(new QLabel(tr("Attributes:")), 0, 0);
+    permGrid->addWidget(m_readOnlyCB, 0, 1);
+    permGrid->addWidget(m_hiddenCB, 1, 1);
+    permGrid->addWidget(m_systemCB, 2, 1);
+    mainLayout->addLayout(permGrid);
+*/
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     auto *securityLayout = new QFormLayout();
     securityLayout->setContentsMargins(30, 10, 30, 10);
     securityLayout->setSpacing(10);
@@ -249,7 +249,7 @@ void FilePropertiesDialog::setupUi() {
     line4->setFrameShape(QFrame::HLine);
     line4->setFrameShadow(QFrame::Sunken);
     mainLayout->addWidget(line4);
-    #endif
+#endif
 
     // Buttons
     auto *buttonLayout = new QHBoxLayout();
@@ -285,14 +285,14 @@ void FilePropertiesDialog::loadFileInfo() {
         quint64 totalSize = calculateFolderSize(fileInfo.absoluteFilePath(), fileCount);
         m_sizeLabel->setText(formatAdaptiveSize(totalSize));
         m_containsLabel->setText(tr("%1 Files")
-        .arg(m_locale.toString(fileCount)));
+                                     .arg(m_locale.toString(fileCount)));
     } else {
         if (fileInfo.size() <= 1024) {
             m_sizeLabel->setText(formatAdaptiveSize(fileInfo.size()));
         } else {
             m_sizeLabel->setText(tr("%1 (%2 Bytes)")
-            .arg(formatAdaptiveSize(fileInfo.size()))
-            .arg(m_locale.toString(fileInfo.size())));
+                                     .arg(formatAdaptiveSize(fileInfo.size()))
+                                     .arg(m_locale.toString(fileInfo.size())));
         }
     }
 
@@ -300,7 +300,7 @@ void FilePropertiesDialog::loadFileInfo() {
     m_modifiedLabel->setText(fileInfo.lastModified().toString("yyyy-MM-dd  HH:mm:ss"));
     m_lastReadLabel->setText(fileInfo.lastRead().toString("yyyy-MM-dd  HH:mm:ss"));
 
-    #ifdef Q_OS_WIN
+#ifdef Q_OS_WIN
     DWORD fileAttr = getWindowsFileAttributes(fileInfo.filePath());
     m_readOnlyCB->setChecked(fileAttr & FILE_ATTRIBUTE_READONLY);
     m_hiddenCB->setChecked(fileAttr & FILE_ATTRIBUTE_HIDDEN);
@@ -312,7 +312,7 @@ void FilePropertiesDialog::loadFileInfo() {
     m_readOnlyCB->setEnabled(canModifyAttributes);
     m_hiddenCB->setEnabled(canModifyAttributes);
     m_systemCB->setEnabled(canModifyAttributes);
-    #elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     QString ownerName = fileInfo.owner();
     if (ownerName.isEmpty()) {
         m_ownerLabel->setText(QString::number(fileInfo.ownerId()));
@@ -356,7 +356,7 @@ void FilePropertiesDialog::loadFileInfo() {
     m_permCBs[2][0]->setEnabled(canModify);
     m_permCBs[2][1]->setEnabled(canModify);
     m_permCBs[2][2]->setEnabled(canModify);
-    #endif
+#endif
 }
 
 void FilePropertiesDialog::loadFileInfoMultiMode() {
@@ -395,13 +395,13 @@ void FilePropertiesDialog::updateMultiUi(ProgressResult result) {
         m_sizeLabel->setText(formatAdaptiveSize(result.size));
     } else {
         m_sizeLabel->setText(tr("%1 (%2 Bytes)")
-        .arg(formatAdaptiveSize(result.size))
-        .arg(m_locale.toString(result.size)));
+                                 .arg(formatAdaptiveSize(result.size))
+                                 .arg(m_locale.toString(result.size)));
     }
 
     m_containsLabel->setText(tr("%1 Files, %2 Folders")
-    .arg(m_locale.toString(result.files))
-    .arg(m_locale.toString(result.folders)));
+                                 .arg(m_locale.toString(result.files))
+                                 .arg(m_locale.toString(result.folders)));
 
     m_watcher->deleteLater();
     m_watcher = nullptr;
@@ -420,14 +420,14 @@ quint64 FilePropertiesDialog::calculateFolderSize(const QString &path, int &file
 
 QString FilePropertiesDialog::getFileType(const QFileInfo &info) {
     if (info.isDir()) return tr("Folder");
-    #if defined(Q_OS_LINUX)
+#if defined(Q_OS_LINUX)
     if (info.isSymLink()) return tr("SymLink");
-    #endif
+#endif
     return info.suffix().isEmpty() ? tr("File") : info.suffix().toUpper() + tr("-File");
 }
 
 void FilePropertiesDialog::onOkPressed() {
-    #ifdef Q_OS_WIN
+#ifdef Q_OS_WIN
     if (!m_isMultiMode && !m_filePaths.isEmpty()) {
         QString filePath = m_filePaths.first();
 
@@ -453,7 +453,7 @@ void FilePropertiesDialog::onOkPressed() {
             }
         }
     }
-    #elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
     // Berechtigungen nur im Single-Modus speichern, da m_permCBs nur dort existieren
     if (!m_isMultiMode && !m_filePaths.isEmpty()) {
         const QString &filePath = m_filePaths.first();
@@ -481,7 +481,7 @@ void FilePropertiesDialog::onOkPressed() {
             return; // Dialog nicht schließen, damit der Nutzer es korrigieren kann
         }
     }
-    #endif
+#endif
     accept();
 }
 

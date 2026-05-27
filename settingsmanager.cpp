@@ -3,16 +3,12 @@
 #include <QCoreApplication>
 #include <QFile>
 
-
 SettingsManager::SettingsManager() {
 	load(); // Lädt beim Erstellen automatisch
 }
 
 void SettingsManager::load() {
     QSettings s(getSettingsPath(), QSettings::IniFormat);
-
-	// Core
-    searchFolders = importSearchFolders(s.value("Core/Folders", "$HOME").toString());
 
 	// Extensions
 	audioExts = parseExtensions(s.value("Extensions/FileExtAudio", DEFAULT_AUDIO).toString());
@@ -26,6 +22,8 @@ void SettingsManager::load() {
     textEditor       = QDir::toNativeSeparators(s.value("Handlers/TextEditor", "org.kde.kate.desktop").toString());
     videoEditor      = QDir::toNativeSeparators(s.value("Handlers/VideoEditor", "org.kde.kdenlive.desktop").toString());
     fileManager      = QDir::toNativeSeparators(s.value("Handlers/FileManager", "org.kde.dolphin.desktop").toString());
+    searchTool       = QDir::toNativeSeparators(s.value("Handlers/SearchTool", "org.kde.kfind.desktop").toString());
+    renameTool       = QDir::toNativeSeparators(s.value("Handlers/RenameTool", "").toString());
 
 	// Interface
 	alternatingRowColors = s.value("Interface/AlternatingRowColors", true).toBool();
@@ -35,6 +33,10 @@ void SettingsManager::load() {
 	showPlaceholderText  = s.value("Interface/ShowPlaceholderText", true).toBool();
     showIconsInMenu      = s.value("Interface/ShowIconsInMenu", true).toBool();
     showShortcutsInMenu  = s.value("Interface/ShowShortcutsInMenu", true).toBool();
+    showFileExtensions   = s.value("Interface/ShowFileExtensions", true).toBool();
+
+    // mkLauncher specific
+    searchFolders = importSearchFolders(s.value("mkLauncher/UserFolders", "$HOME").toString());
 
     QSettings h(getHistoryPath(), QSettings::IniFormat);
     recentInputList = h.value("History/InputList").toStringList();
@@ -45,9 +47,6 @@ void SettingsManager::load() {
 
 void SettingsManager::saveSettings() {
     QSettings s(getSettingsPath(), QSettings::IniFormat);
-
-    // Core
-    safeSetValue(s, "Core/Folders", exportSearchFolders(searchFolders));
 
     // Extensions
     safeSetValue(s, "Extensions/FileExtAudio", formatStringSet(audioExts));
@@ -61,6 +60,8 @@ void SettingsManager::saveSettings() {
     safeSetValue(s, "Handlers/TextEditor", textEditor);
     safeSetValue(s, "Handlers/VideoEditor", videoEditor);
     safeSetValue(s, "Handlers/FileManager", fileManager);
+    safeSetValue(s, "Handlers/SearchTool", searchTool);
+    safeSetValue(s, "Handlers/RenameTool", renameTool);
 
     // Interface
     safeSetValue(s, "Interface/AlternatingRowColors", alternatingRowColors);
@@ -70,7 +71,10 @@ void SettingsManager::saveSettings() {
     safeSetValue(s, "Interface/ShowPlaceholderText", showPlaceholderText);
     safeSetValue(s, "Interface/ShowIconsInMenu", showIconsInMenu);
     safeSetValue(s, "Interface/ShowShortcutsInMenu", showShortcutsInMenu);
+    safeSetValue(s, "Interface/ShowFileExtensions", showFileExtensions);
 
+    // mkLauncher specific
+    safeSetValue(s, "mkLauncher/UserFolders", exportSearchFolders(searchFolders));
 
     // Because we used safeSetValue(), the file will only get written if there were changes in values.
 	s.sync();
@@ -149,33 +153,27 @@ QString SettingsManager::exportSearchFolders(const QStringList &folders) {
 }
 
 QString SettingsManager::getSettingsPath() {
-    QString iniFilePath;
-    if (QFile::exists(QCoreApplication::applicationDirPath() + "/settings.ini")) {
-        iniFilePath = QCoreApplication::applicationDirPath() + "/settings.ini";
-	} else {
-        // Looks up the default folder path for config files (AppConfigLocation)
-		QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-
-        // Make sure that path exists
-		QDir().mkpath(configDir);
-
-        iniFilePath = configDir + "/settings.ini";
-	}
+    QString iniFilePath = QDir(QCoreApplication::applicationDirPath()).filePath("/settings.ini");
+    if (!QFile::exists(iniFilePath)) {
+        QString toolsDirPath = QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)).filePath("mkTools");
+        if (!QDir(toolsDirPath).exists()) {
+            QDir().mkpath(toolsDirPath);
+        }
+        QDir toolsDir(toolsDirPath);
+        iniFilePath = toolsDir.filePath("settings.ini");
+    }
     return iniFilePath;
 }
 
 QString SettingsManager::getHistoryPath() {
-    QString iniFilePath;
-    if (QFile::exists(QCoreApplication::applicationDirPath() + "/history.ini")) {
-        iniFilePath = QCoreApplication::applicationDirPath() + "/history.ini";
-    } else {
-        // Looks up the default folder path for config files (AppConfigLocation)
-        QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-
-        // Make sure that path exists
-        QDir().mkpath(configDir);
-
-        iniFilePath = configDir + "/history.ini";
+    QString iniFilePath = QDir(QCoreApplication::applicationDirPath()).filePath("/history.ini");
+    if (!QFile::exists(iniFilePath)) {
+        QString toolsDirPath = QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)).filePath("mkTools");
+        if (!QDir(toolsDirPath).exists()) {
+            QDir().mkpath(toolsDirPath);
+        }
+        QDir toolsDir(toolsDirPath);
+        iniFilePath = toolsDir.filePath("history.ini");
     }
     return iniFilePath;
 }

@@ -1,6 +1,6 @@
 #include "helpers.h"
-#include "settingsmanager.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QMimeType>
 #include <QMimeDatabase>
@@ -229,22 +229,42 @@ void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList) {
     QProcess::startDetached(program, args, workDir);
 }
 
-void browseToFile(const QString &path) {
-#ifdef Q_OS_WIN
-    SettingsManager settings;
-    QStringList args;
-    if (!settings.fileManager.isEmpty()) {
-        QFileInfo fileInfo(path);
-        QString sDir = fileInfo.dir().path();
-        qDebug() << settings.fileManager;
-        args << "-p" << QDir::toNativeSeparators(sDir) << "-f" << fileInfo.fileName();
-        QProcess::startDetached(QDir::toNativeSeparators(settings.fileManager), args);
-    } else {
-        QStringList args;
-        args << "/select," + QDir::toNativeSeparators(path);
-        QProcess::startDetached("explorer.exe", args);
+void browseToFile(const QString &path, const QString &fileManager) {
+    if (path.isEmpty()) return;
+
+    QFileInfo fileInfo(path);
+    if (!fileInfo.exists()) return;
+
+    QString targetPath = path;
+    QString targetFile = "";
+    if (fileInfo.isFile()) {
+        targetPath = fileInfo.absoluteDir().path();
+        targetFile = path;
     }
-#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+
+    QDir appDir(QCoreApplication::applicationDirPath());
+    QString mkFileManagerPath = appDir.filePath("mkFileManager");
+
+    if (QFile::exists(mkFileManagerPath) && (fileManager.isEmpty() || fileManager == "mkFileManager")) {
+        QStringList args;
+        args << "-p" << QDir::toNativeSeparators(targetPath);
+        if (!targetFile.isEmpty()) {
+            args << "-f" << QDir::toNativeSeparators(targetFile);
+        }
+        QProcess::startDetached(mkFileManagerPath, args);
+        return;
+    }
+
+    if (fileManager.endsWith(".desktop", Qt::CaseInsensitive)) {
+        launchDesktopFile(getDesktopEntryById(fileManager), {targetPath});
+        return;
+    }
+
+#ifdef Q_OS_WIN
+    QStringList args;
+    args << "/select," + QDir::toNativeSeparators(path);
+    QProcess::startDetached("explorer.exe", args);
+#elif defined(Q_OS_LINUX)
     QProcess::startDetached("dbus-send", {
                                              "--session",
                                              "--print-reply",
@@ -255,6 +275,46 @@ void browseToFile(const QString &path) {
                                              "string:\"\""
                                          });
 #else
-    QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+    QDesktopServices::openUrl(QUrl::fromLocalFile(targetPath));
 #endif
+}
+
+QString getDisplayName(const QFileInfo &fileInfo, bool showFileExtensions) {
+    if (showFileExtensions || fileInfo.isDir()) {
+        return fileInfo.fileName();
+    }
+
+    QString displayName = fileInfo.completeBaseName();
+    return displayName.isEmpty() ? fileInfo.fileName() : displayName;
+}
+
+QString getDisplayName(const QString &filePath, bool isDir, bool showFileExtensions) {
+    /* Alternative way
+    // QFileInfo wird hier rein als Text-Parser genutzt! Kein Disk-I/O.
+    QFileInfo finfo(filePath);
+
+    if (showFileExtensions || isDir) {
+        return finfo.fileName();
+    }
+
+    QString displayName = finfo.completeBaseName();
+    return displayName.isEmpty() ? finfo.fileName() : displayName;
+    */
+
+    int lastSeparator = filePath.lastIndexOf('/');
+    if (lastSeparator == -1) {
+        lastSeparator = filePath.lastIndexOf('\\');
+    }
+
+    QString fileName = (lastSeparator == -1) ? filePath : filePath.mid(lastSeparator + 1);
+
+    if (showFileExtensions || isDir) {
+        return fileName;
+    }
+
+    int lastDot = fileName.lastIndexOf('.');
+    if (lastDot <= 0) {
+        return fileName;
+    }
+    return fileName.sliced(0, lastDot);
 }

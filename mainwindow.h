@@ -22,8 +22,8 @@
 /*
  * [QTableWidget Qt::UserRole usage]
  *
- *  eColName	Qt::UserRole		QString absoluteFilePath
- *  eColSize	Qt::UserRole + 1	bool trueIcon
+ *  eColName    Qt::UserRole        QItemInfo
+ *  eColName	Qt::UserRole + 1	bool trueIcon
  *  eColSize	Qt::UserRole		qint64 sizeInBytes
  *  any item	Qt::UserRole + 5	bool isCut
 */
@@ -63,16 +63,35 @@ public:
 };
 
 
-class CutDelegate : public QStyledItemDelegate {
+class tableStyledItemDelegate : public QStyledItemDelegate {
 private:
     const QSet<QString> &m_cutFilePaths;
 
+protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+
+        QFileInfo fileInfo = index.siblingAtColumn(0).data(Qt::UserRole).value<QFileInfo>();
+#ifdef Q_OS_WIN
+        QString ext = fileInfo.suffix().toLower();
+        bool isExecutable = (ext == "exe" || ext == "scr");
+        if (isExecutable && !fileInfo.isDir()) {
+#elif defined (Q_OS_LINUX)
+        if (fileInfo.isExecutable() && !fileInfo.isDir()) {
+#endif
+            static const QColor exeRed(255, 0, 0);
+            option->palette.setColor(QPalette::Text, exeRed);
+            option->palette.setColor(QPalette::HighlightedText, exeRed);
+        }
+    }
+
 public:
-    CutDelegate(const QSet<QString> &cutFilePaths, QObject *parent = nullptr)
+    tableStyledItemDelegate(const QSet<QString> &cutFilePaths, QObject *parent = nullptr)
         : QStyledItemDelegate(parent), m_cutFilePaths(cutFilePaths) {}
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        QString path = index.siblingAtColumn(0).data(Qt::UserRole).toString();
+        QFileInfo fileInfo = index.siblingAtColumn(0).data(Qt::UserRole).value<QFileInfo>();
+        QString path = fileInfo.absoluteFilePath();
 
         bool isCut = m_cutFilePaths.contains(path);
 

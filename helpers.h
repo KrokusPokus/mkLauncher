@@ -23,6 +23,8 @@ DesktopEntry getDesktopEntryById(const QString &id);
 DesktopEntry getDesktopEntry(const QFileInfo &fileInfo);
 void openFileListWithHandler(const QString &handler, const QStringList &fileList);
 void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList = {});
-void browseToFile(const QString &path);
+void browseToFile(const QString &path, const QString &fileManager);
+QString getDisplayName(const QFileInfo &fileInfo, bool showFileExtensions);
+QString getDisplayName(const QString &filePath, bool isDir, bool showFileExtensions);
 
 #endif // HELPERS_H

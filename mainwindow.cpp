@@ -23,7 +23,6 @@
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QObject>
-
 #include <QProcess>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -33,17 +32,15 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QStringView>
-
 #include <QThread>
 #include <QUrl>
 #include <QVBoxLayout>
-#include <qwindow.h>
+
 #include <algorithm> // Für std::reverse
 #include <utility> // Für std::as_const
 
 #ifdef Q_OS_WIN
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include <qt_windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #define WM_MY_LAUNCHER_RESTORE (WM_APP + 123)
@@ -103,8 +100,8 @@ MainWindow::MainWindow(QWidget *parent)
     // ListView
 
     m_tableWidget = new Custom_QTableWidget();
-    m_tableWidget->setItemDelegate(new CutDelegate(m_cutFilePaths, this));
-    m_tableWidget->setEditTriggers(QAbstractItemView::EditKeyPressed);    // QAbstractItemView::NoEditTriggers
+    m_tableWidget->setItemDelegate(new tableStyledItemDelegate(m_cutFilePaths, this));
+    m_tableWidget->setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
 
     m_tableWidget->setStyleSheet(
         /* Haupt-Styling für die Tabelle */
@@ -339,7 +336,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --------------------------------------------------------------------
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#ifdef Q_OS_LINUX
     loadMimeCache();
 
     if (QDBusConnection::sessionBus().registerService("org.mkLauncher")) {
@@ -350,7 +347,7 @@ MainWindow::MainWindow(QWidget *parent)
     // --------------------------------------------------------------------
     // Shortcuts: Whole Window
 
-    QShortcut *WindowShortcutN = new QShortcut(QKeySequence("Ctrl+N"), this);
+    QShortcut *WindowShortcutN = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Comma), this);
     WindowShortcutN->setContext(Qt::WindowShortcut);
     connect(WindowShortcutN, &QShortcut::activated, this, &MainWindow::action_EditSettingsFile);
 
@@ -510,14 +507,13 @@ void MainWindow::startSearch() {
     // Verbindungen
     connect(m_workerThread, &QThread::started, worker, &SearchWorker::process);
     connect(worker, &SearchWorker::filesFoundBatch, this, &MainWindow::onWorkerSentBatch);
-    connect(worker, &SearchWorker::searchStats, this, &MainWindow::onWorkerFinished);
-    connect(worker, &SearchWorker::finished, m_workerThread, &QThread::quit);                   // Stop thread
-    connect(worker, &SearchWorker::finished, worker, &SearchWorker::deleteLater);               // Clean up object
-    connect(m_workerThread, &QThread::finished, m_workerThread, &QThread::deleteLater);         // Clean up thread
+    connect(worker, &SearchWorker::searchStats, this, &MainWindow::onWorkerFinished);   // 1. Store result info
+    connect(worker, &SearchWorker::finished, m_workerThread, &QThread::quit);           // 2. Stop m_workerThread
+    connect(worker, &SearchWorker::finished, worker, &SearchWorker::deleteLater);       // 3. Clean up object
+    connect(m_workerThread, &QThread::finished, m_workerThread, &QThread::deleteLater); // 4. Clean up m_workerThread
     connect(m_workerThread, &QObject::destroyed, this, [this]() { m_workerThread = nullptr; });
 
     connect(this, &MainWindow::abortSearchWorkerRequested, worker, &SearchWorker::abort, Qt::DirectConnection);   // React to "Escape" key press
-    // WICHTIG: Wenn der Thread gelöscht wird, setzen wir unseren Pointer auf nullptr
 
     m_workerThread->start();
 }
@@ -638,35 +634,44 @@ void MainWindow::finalizeUI() {
     m_timerUpdateIcons->start(25);
 }
 
-void MainWindow::onItemChanged(QTableWidgetItem *item) {
-    if (item->column() != eColName) return;
+void MainWindow::onItemChanged(QTableWidgetItem *nameItem) {
+    if (nameItem->column() != eColName) return;
 
-    QString oldPath = item->data(Qt::UserRole).toString();
-    if (oldPath.isEmpty()) return;
-
+    QFileInfo oldInfo = nameItem->data(Qt::UserRole).value<QFileInfo>();
+    QString oldPath = oldInfo.absoluteFilePath();
     if (oldPath.endsWith(".desktop", Qt::CaseInsensitive)) {
         return;
     }
 
-    QString originalInput = item->text();
+    QString originalInput = nameItem->text();
     QString cleanedName = cleanFileName(originalInput);
 
-    QFileInfo oldInfo(oldPath);
-    QString newPath = oldInfo.absolutePath() + "/" + cleanedName;
+    bool isDir = oldInfo.isDir();
+
+    QString finalFileName = cleanedName;
+    if (!m_settings.showFileExtensions && !oldInfo.isDir()) {
+        QString base = oldInfo.completeBaseName();
+        if (!base.isEmpty()) {
+            // Schneidet z.B. ".exe" oder ".tar.gz" aus dem echten Dateinamen aus
+            QString extension = oldInfo.fileName().mid(base.length());
+            finalFileName += extension;
+        }
+    }
+    QString newPath = QDir(oldInfo.absolutePath()).filePath(finalFileName);
 
     if (oldPath != newPath) {
         if (QFile::rename(oldPath, newPath)) {
-            QSignalBlocker blocker(item->tableWidget());
-            item->setText(cleanedName);
-            item->setData(Qt::UserRole, newPath); // Pfad im UserRole Bereich des Items aktualisieren
+            QSignalBlocker blocker(nameItem->tableWidget());
+            nameItem->setText(getDisplayName(newPath, isDir, m_settings.showFileExtensions));
+            nameItem->setData(Qt::UserRole, QVariant::fromValue(QFileInfo(newPath)));
         } else {
             QMessageBox::critical(this, "Fehler", "Umbenennen fehlgeschlagen.");
-            QSignalBlocker blocker(item->tableWidget());
-            item->setText(oldInfo.fileName()); // Text zurücksetzen
+            QSignalBlocker blocker(nameItem->tableWidget());
+            nameItem->setText(getDisplayName(oldInfo, m_settings.showFileExtensions));
         }
     } else if (cleanedName != originalInput) {
-        QSignalBlocker blocker(item->tableWidget());
-        item->setText(cleanedName);
+        QSignalBlocker blocker(nameItem->tableWidget());
+        nameItem->setText(getDisplayName(newPath, isDir, m_settings.showFileExtensions));
     }
 }
 
@@ -674,9 +679,8 @@ void MainWindow::onShowContextMenu(const QPoint &pos) {
     QTableWidgetItem *item = m_tableWidget->itemAt(pos);
     if (!item) return;
 
-    int row = item->row();
-    QString filePath = m_tableWidget->item(row, eColName)->data(Qt::UserRole).toString();
-    QFileInfo fileInfo(filePath);
+    QFileInfo fileInfo = m_tableWidget->item(item->row(), eColName)->data(Qt::UserRole).value<QFileInfo>();
+    QString filePath = fileInfo.absoluteFilePath();
     QString fileExt = fileInfo.suffix().toLower();
 
     QMenu mainMenu(this);
@@ -687,7 +691,6 @@ void MainWindow::onShowContextMenu(const QPoint &pos) {
     if (m_settings.audioExts.contains(fileExt) || m_settings.imageExts.contains(fileExt) || m_settings.textExts.contains(fileExt) || m_settings.videoExts.contains(fileExt)) {
         mainMenu.addAction(m_actionListViewEditFiles);
     }
-
 
 #ifdef Q_OS_WIN
     mainMenu.addSeparator(); //-----------------------------------------
@@ -792,18 +795,10 @@ void MainWindow::onShowContextMenu(const QPoint &pos) {
 QString MainWindow::getActiveViewCurrentItemPath() {
     QString path;
 
-    /*
-    int viewStack = m_viewStack->currentIndex();
-    if (viewStack == 0) {
-        QListWidgetItem *item = m_listWidget->currentItem();
-        if (item) {
-            path = item->data(Qt::UserRole).toString();
-        }
-    } else if (viewStack == 1) */ {
-        QTableWidgetItem *item = m_tableWidget->currentItem();
-        if (item) {
-            path = m_tableWidget->item(item->row(), eColName)->data(Qt::UserRole).toString();
-        }
+    QTableWidgetItem *currentItem = m_tableWidget->currentItem();
+    if (currentItem) {
+        QFileInfo fileInfo = m_tableWidget->item(currentItem->row(), eColName)->data(Qt::UserRole).value<QFileInfo>();
+        path = fileInfo.absoluteFilePath();
     }
 
     return path;
@@ -812,35 +807,19 @@ QString MainWindow::getActiveViewCurrentItemPath() {
 QStringList MainWindow::getActiveViewPathList() {
     QStringList pathList;
 
-    /*
-    int viewStack = m_viewStack->currentIndex();
-    if (viewStack == 0) {            // List View
-        QList<QListWidgetItem*> selectedItems = m_listWidget->selectedItems();
-        if (selectedItems.isEmpty()) return pathList;
+    QList<QTableWidgetItem*> selectedItems = m_tableWidget->selectedItems();
+    if (selectedItems.isEmpty()) return pathList;
 
-        // 2. Direkt durchlaufen – Duplikate sind unmöglich!
-        for (auto *item : std::as_const(selectedItems)) {
-            QString path = item->data(Qt::UserRole).toString();
-            if (!path.isEmpty()) {
-                pathList << path;
-            }
-        }
-    } else if (viewStack == 1) */ {     // Detail View
-        QList<QTableWidgetItem*> selectedItems = m_tableWidget->selectedItems();
-        if (selectedItems.isEmpty()) return pathList;
+    QSet<int> rowSet;
+    for (auto *item : std::as_const(selectedItems)) {
+        rowSet.insert(item->row());
+    }
 
-        // Zeilenindizes sammeln (verhindert Dopplungen bei Mehrfachauswahl in einer Zeile)
-        QSet<int> rowSet;
-        for (auto *item : std::as_const(selectedItems)) {
-            rowSet.insert(item->row());
-        }
-
-        for (int row : rowSet) {
-            // Wir nehmen an, der Pfad liegt in Spalte 0 in der UserRole
-            QString path = m_tableWidget->item(row, eColName)->data(Qt::UserRole).toString();
-            if (!path.isEmpty()) {
-                pathList << path;
-            }
+    for (int row : rowSet) {
+        QFileInfo fileInfo = m_tableWidget->item(row, eColName)->data(Qt::UserRole).value<QFileInfo>();
+        QString path = fileInfo.absoluteFilePath();
+        if (!path.isEmpty()) {
+            pathList << path;
         }
     }
 
@@ -850,22 +829,11 @@ QStringList MainWindow::getActiveViewPathList() {
 QSet<int> MainWindow::getActiveViewRowSet() {
     QSet<int> rowSet;
 
-    /*
-    int viewStack = m_viewStack->currentIndex();
-    if (viewStack == 0) {            // List View
-        QList<QListWidgetItem*> selectedItems = m_listWidget->selectedItems();
-        if (selectedItems.isEmpty()) return rowSet;
+    QList<QTableWidgetItem*> selectedItems = m_tableWidget->selectedItems();
+    if (selectedItems.isEmpty()) return rowSet;
 
-        for (auto *item : std::as_const(selectedItems)) {
-            rowSet.insert(m_listWidget->row(item));
-        }
-    } else if (viewStack == 1) */ {     // Detail View (Table)
-        QList<QTableWidgetItem*> selectedItems = m_tableWidget->selectedItems();
-        if (selectedItems.isEmpty()) return rowSet;
-
-        for (auto *item : std::as_const(selectedItems)) {
-            rowSet.insert(item->row()); // Das war hier schon völlig richtig!
-        }
+    for (auto *item : std::as_const(selectedItems)) {
+        rowSet.insert(item->row()); // Das war hier schon völlig richtig!
     }
 
     return rowSet;
@@ -890,7 +858,7 @@ void MainWindow::action_ListViewOpenFiles() {
 
     if (fileExt == "desktop") {
         launchDesktopFile(getDesktopEntry(fileInfo));
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#ifdef Q_OS_LINUX
     } else if (fileInfo.isExecutable() && !fileInfo.isDir() && !m_settings.audioExts.contains(fileExt) && !m_settings.imageExts.contains(fileExt) && !m_settings.videoExts.contains(fileExt)) {
         // Workaround on linux where executible files are not neccessarily executed when opened via QDesktopServices::openUrl().
         QProcess::startDetached(path, QStringList(), fileInfo.absolutePath());
@@ -947,8 +915,6 @@ void MainWindow::action_ListViewEditFiles() {
 
     guiHideConditional();
 }
-
-
 
 void MainWindow::action_ListViewCopyPaths() {
     QStringList pathList = getActiveViewPathList();
@@ -1014,24 +980,15 @@ void MainWindow::action_ListViewDeleteFiles(bool bRecycleOnly) {
     m_tableWidget->setUpdatesEnabled(false);
     for (int row = m_tableWidget->rowCount() - 1; row >= 0; --row) {
         QTableWidgetItem *item = m_tableWidget->item(row, eColName);
-        if (item && successfullyDeletedPaths.contains(item->data(Qt::UserRole).toString())) {
-            m_tableWidget->removeRow(row);
+        if (item) {
+            QFileInfo fileInfo = item->data(Qt::UserRole).value<QFileInfo>();
+            QString path = fileInfo.absoluteFilePath();
+            if (!path.isEmpty() && successfullyDeletedPaths.contains(path)) {
+                m_tableWidget->removeRow(row);
+            }
         }
     }
     m_tableWidget->setUpdatesEnabled(true);
-
-    /*
-    m_listWidget->setUpdatesEnabled(false);
-    for (int row = m_listWidget->count() - 1; row >= 0; --row) {
-        QListWidgetItem *item = m_listWidget->item(row);
-        if (item && successfullyDeletedPaths.contains(item->data(Qt::UserRole).toString())) {
-            delete m_listWidget->takeItem(row);
-        }
-    }
-    m_listWidget->setUpdatesEnabled(true);
-
-    m_fileSystemWatcher->blockSignals(false);
-    */
 }
 
 void MainWindow::action_ListViewCutFiles() {
@@ -1041,7 +998,6 @@ void MainWindow::action_ListViewCutFiles() {
     m_cutFilePaths = QSet<QString>(pathList.begin(), pathList.end());
 
     m_tableWidget->viewport()->update();
-    //m_listWidget->viewport()->update();
 
     setupClipboardForCut(m_cutFilePaths);
 }
@@ -1064,7 +1020,7 @@ void MainWindow::setupClipboardForCut(const QSet<QString> &cutFilePaths) {
     buffer.append(static_cast<char>(Qt::MoveAction));
     buffer.append('\0'); buffer.append('\0'); buffer.append('\0');
     mimeData->setData("Preferred DropEffect", buffer);
-#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX)
     // For Linux on GNOME-based Desktops (Nautilus, PCManFM, etc.)
     // Format: "cut" oder "copy", dann Zeilenumbruch, dann alle URLs (ebenfalls per \n getrennt)
     QByteArray gnomeData = "cut";
@@ -1099,7 +1055,6 @@ void MainWindow::onClipboardChanged() {
 void MainWindow::removeCutMarkers() {
     m_cutFilePaths.clear();
     m_tableWidget->viewport()->update();
-    //m_listWidget->viewport()->update();
 }
 
 void MainWindow::action_ListViewCopyFiles() {
@@ -1121,7 +1076,7 @@ void MainWindow::action_ListViewCopyFiles() {
     buffer.append(static_cast<char>(Qt::CopyAction));
     buffer.append('\0'); buffer.append('\0'); buffer.append('\0');
     mimeData->setData("Preferred DropEffect", buffer);
-#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX)
     // For Linux on GNOME-based Desktops (Nautilus, PCManFM, etc.)
     // Format: "cut" oder "copy", dann Zeilenumbruch, dann alle URLs (ebenfalls per \n getrennt)
     QByteArray gnomeFormat = "copy";
@@ -1145,20 +1100,13 @@ void MainWindow::action_ListViewBrowseToFile() {
     QString path = getActiveViewCurrentItemPath();
     if (path.isEmpty()) return;
 
-    browseToFile(path);
+    browseToFile(path, m_settings.fileManager);
     guiHideConditional();
 }
 
 void MainWindow::action_ListViewRenameFiles() {
-    /*
-    int viewIndex = m_viewStack->currentIndex();
-    if (viewIndex == 0) {
-        QListWidgetItem *item = m_listWidget->currentItem();
-        if (item) m_listWidget->editItem(item);
-    } else if (viewIndex == 1) */ {
-        QTableWidgetItem *item = m_tableWidget->currentItem();
-        if (item) m_tableWidget->editItem(m_tableWidget->item(item->row(), eColName));
-    }
+    QTableWidgetItem *item = m_tableWidget->currentItem();
+    if (item) m_tableWidget->editItem(m_tableWidget->item(item->row(), eColName));
 }
 
 void MainWindow::action_ListViewFileProperties() {
@@ -1196,7 +1144,8 @@ void MainWindow::onTimedUpdateIcons() {
     for (int i = firstVisible; i <= lastVisible; ++i) {
         QTableWidgetItem *nameItem = m_tableWidget->item(i, eColName);
         if (nameItem) {
-            QString fullPath = nameItem->data(Qt::UserRole).toString();
+            QFileInfo fileInfo = nameItem->data(Qt::UserRole).value<QFileInfo>();
+            QString fullPath = fileInfo.absoluteFilePath();
             if (!fullPath.isEmpty()) {
                 if (nameItem->data(Qt::UserRole + 1).toBool() == false) {
                     QFileInfo fileInfo(fullPath);
@@ -1228,17 +1177,15 @@ void MainWindow::onTimedUpdateIcons() {
     }
 }
 
-//################################################################################################
-// Misc
-
 void MainWindow::addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMatchQuality, const QString &displayName) {
 
     // Icon & Name
     QString visibleName;
-    if (!displayName.isEmpty())
+    if (!displayName.isEmpty()) {
         visibleName = displayName;
-    else
-        visibleName = fileInfo.fileName();
+    } else {
+        visibleName = getDisplayName(fileInfo, m_settings.showFileExtensions);
+    }
 
     QTableWidgetItem *nameItem = new QTableWidgetItem(visibleName);
 
@@ -1267,7 +1214,7 @@ void MainWindow::addFileToTable(const QFileInfo &fileInfo, int iRow, int nameMat
     }
 
     nameItem->setIcon(it.value());
-    nameItem->setData(Qt::UserRole, fileInfo.absoluteFilePath());
+    nameItem->setData(Qt::UserRole, QVariant::fromValue(fileInfo));
     nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
     m_tableWidget->setItem(iRow, eColName, nameItem);
 
@@ -1342,7 +1289,7 @@ void MainWindow::launchAction() {
 
 #ifdef Q_OS_WIN
 
-#elif defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX)
         QString possiblePath = input1;
 
         if (possiblePath.startsWith("~/")) {
@@ -1355,7 +1302,7 @@ void MainWindow::launchAction() {
 
         QFileInfo checkFile(possiblePath);
         if (checkFile.exists()) {
-            browseToFile(possiblePath);
+            browseToFile(possiblePath, m_settings.fileManager);
             guiHideConditional();
             return;
         }
@@ -1496,16 +1443,14 @@ void MainWindow::loadMimeCache() {
     m_mimeCache.clear();
     m_mimeCache.reserve(500);
 
-    QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
-    // Note to self: appDirs contains the path in the order from user specific to system defaults
-    // We want to reverse this so we read the system default folders *first* and then overwrite with data from the user specific locations
-    std::reverse(appDirs.begin(), appDirs.end());
+    QStringList appDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);  // Order: User before System
+    std::reverse(appDirs.begin(), appDirs.end());   // Reverse to System before User, so we can overwrite System with User keys while parsing
     for (const QString &dirPath : std::as_const(appDirs)) {
         QString cachePath = QDir(dirPath).filePath("mimeinfo.cache");
         parseMimeInfoCache(cachePath);
     }
 
-    parseMimeAppsList(QDir::homePath() + "/.config/mimeapps.list");
+    parseMimeAppsList(QDir(QDir::homePath()).filePath(".config/mimeapps.list"));
 }
 
 void MainWindow::parseMimeInfoCache(const QString &path) {
@@ -1643,6 +1588,7 @@ bool MainWindow::showDeleteConfirmationDialog(const QStringList &pathList, bool 
     return true;
 }
 
+
 //######################################################################################
 // Public Slots
 
@@ -1668,7 +1614,7 @@ void MainWindow::resizeEvent(QResizeEvent *event) {
     updateColumns();
 }
 
-// This happens only once, one creating the window
+// This happens only once, on creating the window
 void MainWindow::showEvent(QShowEvent *event) {
     QMainWindow::showEvent(event);
     updateColumns();

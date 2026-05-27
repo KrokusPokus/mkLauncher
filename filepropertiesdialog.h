@@ -13,7 +13,7 @@
 #include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
-#include <windows.h>
+#include <qt_windows.h>
 #endif
 
 class FilePropertiesDialog : public QDialog {
