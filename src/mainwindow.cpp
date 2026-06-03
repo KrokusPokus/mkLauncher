@@ -108,6 +108,7 @@ MainWindow::MainWindow(QWidget *parent)
         "QTableWidget {"
         "    border: none;"
         "    background-color: #2e2e2e;"
+        "    alternate-background-color: #282828;"
         "    color: #ffffff;"
         "}"
         // Aktive Auswahl
@@ -1573,7 +1574,41 @@ bool MainWindow::showDeleteConfirmationDialog(const QStringList &pathList, bool 
         QString imgBase64 = ba.toBase64();
 
         msgBox.setText(QString("<h3>%1</h3>").arg(sText));
-        msgBox.setInformativeText(QString(tr("<table width='100%' cellspacing='0' cellpadding='0'><tr><td rowspan=4 width='48' valign='top' style='padding-right: 10px;'><img src='data:image/png;base64,%1'></td><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;' width='1%'>Name:</td><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>%2</td></tr><tr><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>Size:</td><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>%3</td></tr><tr><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>Date:</td><td style='color: #555; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>%4</td></tr><tr><td colspan=2 style='padding-top: 8px; padding-bottom: 2px; padding-left: 8px; padding-right: 8px;'>%5</td></tr></table>")).arg(imgBase64, fileName, size, lastModified, sWarning));
+
+        const QString htmlTemplate = QStringLiteral(R"(
+            <table width='100%' cellspacing='0' cellpadding='0'>
+                <tr>
+                    <td rowspan='4' width='48' valign='top' style='padding-right: 10px;'>
+                        <img src='data:image/png;base64,%1'>
+                    </td>
+                    <td style='color: #555; padding: 2px 8px;' width='1%'>%2</td>
+                    <td style='color: #555; padding: 2px 8px;'>%3</td>
+                </tr>
+                <tr>
+                    <td style='color: #555; padding: 2px 8px;'>%4</td>
+                    <td style='color: #555; padding: 2px 8px;'>%5</td>
+                </tr>
+                <tr>
+                    <td style='color: #555; padding: 2px 8px;'>%6</td>
+                    <td style='color: #555; padding: 2px 8px;'>%7</td>
+                </tr>
+                <tr>
+                    <td colspan='2' style='padding: 8px 8px 2px 8px;'>%8</td>
+                </tr>
+            </table>
+            )");
+
+
+        msgBox.setInformativeText(htmlTemplate.arg(
+            imgBase64,
+            tr("Name:"),
+            fileName,
+            tr("Size:"),
+            size,
+            tr("Date:"),
+            lastModified,
+            sWarning
+            ));
     } else {
         msgBox.setText(QString("<h3>%1</h3>").arg(sText));
         msgBox.setInformativeText(sWarning);
@@ -1741,6 +1776,11 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
             // Check if focus is actually on a widget inside m_tableWidget's viewport (the editor)
             if (m_tableWidget->viewport()->focusWidget()) {
                 return false;
+            }
+
+            // Check if another window (like File Properties Dialog) are focused
+            if (QApplication::activeWindow() != this) {
+                return false; // ...and send event to that dialog instead.
             }
 
             this->showMinimized();

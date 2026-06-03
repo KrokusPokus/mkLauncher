@@ -243,15 +243,19 @@ void browseToFile(const QString &path, const QString &fileManager) {
     }
 
     QDir appDir(QCoreApplication::applicationDirPath());
-    QString mkFileManagerPath = appDir.filePath("mkFileManager");
+#ifdef Q_OS_WIN
+    QString mkFolderWidgetPath = appDir.filePath("mkFolderWidget.exe");
+#elif defined(Q_OS_LINUX)
+    QString mkFolderWidgetPath = appDir.filePath("mkFolderWidget");
+#endif
 
-    if (QFile::exists(mkFileManagerPath) && (fileManager.isEmpty() || fileManager == "mkFileManager")) {
+    if (QFile::exists(mkFolderWidgetPath) && (fileManager.isEmpty() || fileManager == "mkFolderWidget")) {
         QStringList args;
         args << "-p" << QDir::toNativeSeparators(targetPath);
         if (!targetFile.isEmpty()) {
             args << "-f" << QDir::toNativeSeparators(targetFile);
         }
-        QProcess::startDetached(mkFileManagerPath, args);
+        QProcess::startDetached(mkFolderWidgetPath, args);
         return;
     }
 

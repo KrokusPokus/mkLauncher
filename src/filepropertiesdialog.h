@@ -14,6 +14,7 @@
 
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
+#include <shlobj.h>     // needed for getWindowsShortcutDetails() and setWindowsShortcutDetails()
 #endif
 
 class FilePropertiesDialog : public QDialog {
@@ -24,16 +25,26 @@ public:
     ~FilePropertiesDialog();
 
 private:
-    void setupUi();
-    void loadFileInfo();
+    void setupUi(const QFileInfo &fileInfo);
     void setupUiMultiMode();
-    void loadFileInfoMultiMode();
+    void fillSingleFileInfo(const QFileInfo &fileInfo);
+    void updateUiAsyncStart();
     QString getFileType(const QFileInfo &info);
-    quint64 calculateFolderSize(const QString &path, int &fileCount);
+    quint64 calculateFolderSize(const QString &path, int &fileCount, int &folderCount, QSet<QString> &visitedDirs, const std::atomic<bool> &abortFlag);
     void onOkPressed();
+    bool canModifyPermissions(const QFileInfo &fileInfo);
 
 #ifdef Q_OS_WIN
+    struct WinShortcutDetails {
+        QString targetPath;
+        QString arguments;
+        QString workingDirectory;
+        QString description;
+    };
+
     DWORD getWindowsFileAttributes(const QString &filePath);
+    bool getWindowsShortcutDetails(const QString &lnkFilePath, WinShortcutDetails &details);
+    bool setWindowsShortcutDetails(const QString &lnkFilePath, const WinShortcutDetails &details);
 #endif
 
     QStringList m_filePaths;
@@ -51,13 +62,15 @@ private:
     QLabel *m_lastReadLabel = nullptr;
     QLabel *m_modifiedLabel = nullptr;
 
+    QLineEdit *m_linkTargetEdit = nullptr;
+    QLineEdit *m_linkArgumentsEdit = nullptr;
+    QLineEdit *m_linkWorkingDirectoryEdit = nullptr;
+
 #ifdef Q_OS_WIN
     QCheckBox *m_readOnlyCB = nullptr;
     QCheckBox *m_hiddenCB = nullptr;
     QCheckBox *m_systemCB = nullptr;
-#endif
-
-#if defined(Q_OS_LINUX) || defined(Q_OS_UNIX)
+#elif defined(Q_OS_LINUX)
     QLabel *m_ownerLabel = nullptr;
     QLabel *m_groupLabel = nullptr;
     QLabel *m_permLabel = nullptr;
@@ -74,7 +87,10 @@ private:
     };
 
     QFutureWatcher<ProgressResult> *m_watcher = nullptr;
-    void updateMultiUi(ProgressResult result);
+    void updateUiAsync(ProgressResult result);
+
+protected:
+    void done(int r) override;
 };
 
 #endif // FILEPROPERTIESDIALOG_H

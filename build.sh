@@ -6,7 +6,7 @@ fi
 
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
-cmake --build .
+cmake --build . --parallel
 
 if [ -f "./bin/mkLauncher" ]; then
     strip ./bin/mkLauncher
