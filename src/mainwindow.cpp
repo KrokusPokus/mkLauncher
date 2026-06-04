@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
 
     setWindowTitle("mkLauncher");
-    setWindowIcon(QIcon(":/icons/res/app.ico"));
+    setWindowIcon(QIcon(":/icons/app.ico"));
 
     this->setStyleSheet(
             "QMainWindow { background-color: #222222; }"
@@ -110,6 +110,7 @@ MainWindow::MainWindow(QWidget *parent)
         "    background-color: #2e2e2e;"
         "    alternate-background-color: #282828;"
         "    color: #ffffff;"
+        "    outline: none;"
         "}"
         // Aktive Auswahl
         "QTableWidget::item:selected:active {"
@@ -1564,9 +1565,14 @@ bool MainWindow::showDeleteConfirmationDialog(const QStringList &pathList, bool 
         QString size = formatAdaptiveSize(fileInfo.size());
         QString lastModified = fileInfo.lastModified().toString("yyyy-MM-dd  HH:mm:ss");
 
-        QFileIconProvider provider;
-        QIcon icon = provider.icon(fileInfo);
+        QIcon icon = m_iconProvider.icon(fileInfo);
         QPixmap pix = icon.pixmap(QSize(48, 48));
+        if (hasImageExt(fileInfo)) {
+            QPixmap thumb = generateThumbnail(fileInfo.absoluteFilePath());
+            if (!thumb.isNull()) {
+                pix = thumb;
+            }
+        }
 
         QByteArray ba;
         QBuffer bu(&ba);
@@ -1671,14 +1677,16 @@ void MainWindow::showEvent(QShowEvent *event) {
 bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     if (obj == m_tableWidget->viewport() && event->type() == QEvent::Resize) {
         m_timerUpdateIcons->start(100);
-        updateColumns();
 
+        QTimer::singleShot(0, this, [this]() {
+            updateColumns();
+        });
         /*
-        if (m_tableWidget) {
-            QTableWidgetItem *currentItem = m_tableWidget->currentItem();
-            if (currentItem) {
+        QTableWidgetItem *currentItem = m_tableWidget->currentItem();
+        if (currentItem) {
+            QTimer::singleShot(0, this, [this, currentItem]() {
                 m_tableWidget->scrollToItem(currentItem, QAbstractItemView::EnsureVisible);
-            }
+            });
         }
         */
     }
@@ -1686,13 +1694,18 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
     if (event->type() == QEvent::MouseButtonPress) {
         if (obj == m_tableWidget->viewport()) {
             auto *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (mouseEvent->button() == Qt::RightButton && !m_settings.menuOnMouseUp) {
+            if (mouseEvent->button() == Qt::RightButton) {
                 QPoint pos = mouseEvent->pos();
-                // Use Lambda to trigger menu after button event has finished processing
-                // This is a workaround. Calling onShowContextMenu() directly would block the default funtion of focusing the item below the mouse cursor.
-                QTimer::singleShot(0, this, [this, pos]() {
-                    onShowContextMenu(pos);
-                });
+
+                if (!m_tableWidget->indexAt(pos).isValid()) {
+                    m_tableWidget->clearSelection();
+                }
+
+                if (!m_settings.menuOnMouseUp) {
+                    QTimer::singleShot(0, this, [this, pos]() {
+                        onShowContextMenu(pos);
+                    });
+                }
 
                 return false;
             }

@@ -1,8 +1,9 @@
 #ifndef HELPERS_H
 #define HELPERS_H
 
-#include <QString>
 #include <QFileInfo>
+#include <QString>
+#include <QPixmap>
 
 struct DesktopEntry {
     QString id;
@@ -26,5 +27,7 @@ void launchDesktopFile(const DesktopEntry &info, const QStringList &fileList = {
 void browseToFile(const QString &path, const QString &fileManager);
 QString getDisplayName(const QFileInfo &fileInfo, bool showFileExtensions);
 QString getDisplayName(const QString &filePath, bool isDir, bool showFileExtensions);
+QPixmap generateThumbnail(const QString &filePath);
+bool hasImageExt(const QFileInfo &fileInfo);
 
 #endif // HELPERS_H

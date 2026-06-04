@@ -2,12 +2,14 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QImageReader>
 #include <QMimeType>
 #include <QMimeDatabase>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QRegularExpression>
 #include <QUrl>
+
 #include <zlib.h>
 
 bool isTextFile(const QString &filePath) {
@@ -321,4 +323,33 @@ QString getDisplayName(const QString &filePath, bool isDir, bool showFileExtensi
         return fileName;
     }
     return fileName.sliced(0, lastDot);
+}
+
+QPixmap generateThumbnail(const QString &filePath) {
+    QImageReader reader(filePath);
+    reader.setAutoTransform(true); // Wichtig für EXIF-Rotationen von Smartphones
+
+    if (reader.canRead()) {
+        // 1. Die echte Dimension des Bildes auslesen (kostet kaum Performance)
+        QSize originalSize = reader.size();
+
+        // 2. Proportionale Größe berechnen, die in eine 96x96 Box passt
+        // Aus z.B. 1920x1080 wird hier automatisch 96x54
+        QSize scaledSize = originalSize.scaled(QSize(96, 96), Qt::KeepAspectRatio);
+
+        // 3. Dem Reader die proportionale Größe mitteilen
+        reader.setScaledSize(scaledSize);
+
+        QImage img = reader.read();
+        if (!img.isNull()) {
+            return QPixmap::fromImage(img);
+        }
+    }
+
+    return QPixmap(); // Fallback
+}
+
+bool hasImageExt(const QFileInfo &fileInfo) {
+    QString ext = fileInfo.suffix().toLower();
+    return (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "bmp" || ext == "gif" || ext == "webp" || ext == "jxl");
 }

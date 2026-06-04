@@ -124,7 +124,12 @@ void FilePropertiesDialog::setupUi(const QFileInfo &fileInfo) {
     headerLayout->setContentsMargins(30, 25, 30, 25);
     headerLayout->setSpacing(25);
     m_iconLabel = new QLabel();
-    m_nameEdit = new QLineEdit();
+
+    m_nameEdit = new QLineEdit(fileInfo.fileName());
+    m_nameEdit->setStyleSheet("QLineEdit { padding-left: 7px; padding-right: 7px; padding-top: 5px; padding-bottom: 5px;}");
+    int textWidth = m_nameEdit->fontMetrics().horizontalAdvance(m_nameEdit->text());
+    m_nameEdit->setMinimumWidth(textWidth + 22);
+
     headerLayout->addWidget(m_iconLabel);
     headerLayout->addWidget(m_nameEdit);
     mainLayout->addLayout(headerLayout);
@@ -371,8 +376,16 @@ void FilePropertiesDialog::fillSingleFileInfo(const QFileInfo &fileInfo) {
     m_mimeLabel->setText(mime.name());
 
     QFileIconProvider provider;
-    m_iconLabel->setPixmap(QIcon::fromTheme(mime.iconName(), provider.icon(fileInfo)).pixmap(48, 48));
-    m_nameEdit->setText(fileInfo.fileName());
+    QIcon icon = provider.icon(fileInfo);
+    QPixmap pix = icon.pixmap(QSize(48, 48));
+    if (hasImageExt(fileInfo)) {
+        QPixmap thumb = generateThumbnail(fileInfo.absoluteFilePath());
+        if (!thumb.isNull()) {
+            pix = thumb;
+        }
+    }
+    m_iconLabel->setPixmap(pix);
+
     m_pathEdit->setText(QDir::toNativeSeparators(fileInfo.absolutePath()));
     m_typeLabel->setText(getFileType(fileInfo));
 
