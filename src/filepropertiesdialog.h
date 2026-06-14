@@ -27,7 +27,6 @@ public:
 private:
     void setupUi(const QFileInfo &fileInfo);
     void setupUiMultiMode();
-    void fillSingleFileInfo(const QFileInfo &fileInfo);
     void updateUiAsyncStart();
     QString getFileType(const QFileInfo &info);
     quint64 calculateFolderSize(const QString &path, int &fileCount, int &folderCount, QSet<QString> &visitedDirs, const std::atomic<bool> &abortFlag);
